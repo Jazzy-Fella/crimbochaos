@@ -942,7 +942,7 @@ function drawScene() {
   if (speech && state === 'play') drawSpeech();
   flakes.forEach(f => rect('#ffffff', f.x, f.y, 1, 1));
 
-  if (state === 'play') text('PRESENTS SAVED: ' + score, W / 2, Math.max(10, Math.ceil(SAFE_TOP) + 4 - OY), 1, '#ffffff'); // below the notch
+  if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // presents saved, below the notch
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
     const lineH = 6, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 17 + 29 + (best ? 14 : 0) + 11;
