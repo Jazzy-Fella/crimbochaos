@@ -52,7 +52,7 @@ const STEP = 1000 / 60; let last = performance.now(), acc = 0;
     else intro.update();
   }
   if (intro.done) { ctx.fillStyle = '#05070f'; ctx.fillRect(0, 0, 144, 256); }
-  else intro.draw(144, 256, 'TAP: NEXT SCENE');
+  else intro.draw(144, 256, '');
   requestAnimationFrame(loop);
 })(performance.now());
 </script>
