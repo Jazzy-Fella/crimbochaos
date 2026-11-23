@@ -24,7 +24,11 @@
   :root { --sat: env(safe-area-inset-top, 0px); } /* notch / status bar height, read by the game */
   body {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-    height: 100vh; height: 100dvh;   /* dvh = the visible height, without mobile browser bars */
+    /* Pinned to the screen edges rather than sized with 100vh: saved home screen apps
+       on recent iPhones can stop a 100vh page above the home bar, leaving a gap. It also
+       reaches down past the home bar's safe area, so there is never a gap at the bottom
+       (at worst a little of the snow and chimneys sits behind the home bar). */
+    position: fixed; top: 0; left: 0; right: 0; bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
     /* the game runs edge to edge, under the notch and home bar; only keep clear of the
        side notch when a phone is turned sideways */
     padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
@@ -72,7 +76,13 @@ function fitScreen() {
   SAFE_TOP = sat * H / Math.max(1, cv.getBoundingClientRect().height);
 }
 fitScreen();
+// Phones report their final size late (rotating, browser bars sliding, home screen apps
+// finishing opening), so measure again on all of those
 addEventListener('resize', fitScreen);
+addEventListener('orientationchange', () => setTimeout(fitScreen, 300));
+addEventListener('pageshow', fitScreen);
+if (window.visualViewport) visualViewport.addEventListener('resize', fitScreen);
+[100, 500, 1500].forEach(ms => setTimeout(fitScreen, ms));
 const GROUND = 196; // baseline of the background scenery
 
 // ---------- Pixel sprites ----------
@@ -327,7 +337,7 @@ function initAudio() {
   if (!music) {
     music = new Audio(MUSIC_FILE);
     music.loop = true;
-    music.volume = 0.25;
+    music.volume = 0.08;
   }
   if (!musicPrimed) {
     // Phones only let a track play later if it was first started during a tap, so start
