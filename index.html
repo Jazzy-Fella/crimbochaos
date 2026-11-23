@@ -61,8 +61,22 @@ let OY = 0; // on tall screens the 256px-high game is shifted down by this much 
 // game grows taller to fill them (up to 320px; the extra space is at the bottom, where
 // the chimneys and snow just reach further down). Desktop/landscape stays 144x256.
 let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of text
+// Saved to the home screen, iPhones report the page as shorter than the screen by the
+// status bar's height (while still drawing it from the very top), leaving a band at the
+// bottom. So when running as a home screen app, size the page from the real screen.
+function isHomeScreenApp() {
+  return navigator.standalone === true ||
+    matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+}
 function fitScreen() {
   const b = document.body;
+  if (isHomeScreenApp()) {
+    const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
+    b.style.bottom = 'auto';
+    b.style.height = (innerWidth > innerHeight ? short : long) + 'px';
+  } else {
+    b.style.bottom = ''; b.style.height = '';
+  }
   const cs = getComputedStyle(b);
   const ratio = b.clientHeight / Math.max(1, b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
   const tall = ratio > 256 / W + 0.01;               // taller than 9:16, e.g. any phone held upright
