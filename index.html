@@ -365,11 +365,25 @@ function toggleMusic() {
 }
 function toggleFx() { fxMuted = !fxMuted; saveSound(); }
 
+// iPhones ignore a page's volume setting for <audio> (it always plays at full volume),
+// so the music is routed through Web Audio with a gain node, which phones do respect.
+const MUSIC_VOLUME = 0.08;
+let musicGain = null;
+function routeMusic() {
+  if (musicGain || !music || !audio) return;
+  try {
+    musicGain = audio.createGain();
+    musicGain.gain.value = MUSIC_VOLUME;
+    audio.createMediaElementSource(music).connect(musicGain).connect(audio.destination);
+    music.volume = 1;                     // the gain node does the turning down now
+  } catch { music.volume = MUSIC_VOLUME; }
+}
 function initAudio() {
+  keepAwake();
   if (!music) {
     music = new Audio(MUSIC_FILE);
     music.loop = true;
-    music.volume = 0.08;
+    music.volume = MUSIC_VOLUME;          // used only if Web Audio isn't available
   }
   if (!musicPrimed) {
     // Phones only let a track play later if it was first started during a tap, so start
@@ -380,6 +394,19 @@ function initAudio() {
   } else if (musicOn && !musicMuted && music.paused) music.play().catch(() => {});
   if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
   if (audio.state === 'suspended') audio.resume();
+  routeMusic();
+}
+
+// ---------- Keep the screen awake ----------
+// Asks the phone not to dim or lock while the game is open (re-asked whenever the game
+// comes back to the front, since phones drop the request when you switch away).
+let wakeLock = null;
+async function keepAwake() {
+  if (wakeLock || document.hidden || !('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { wakeLock = null; }
 }
 function tone({ type = 'square', f0, f1, dur, vol = 0.08, delay = 0 }) {
   if (!audio || fxMuted) return;
@@ -493,6 +520,7 @@ addEventListener('pointerdown', e => {
 addEventListener('contextmenu', e => e.preventDefault()); // no long-press menu
 // Pause the music when the player switches app or locks the phone
 document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) keepAwake();
   if (document.hidden) {
     if (music) music.pause();
     if (audio) audio.suspend();
@@ -1010,6 +1038,12 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// Offline: a service worker (sw.js) keeps a copy of the game on the device so it opens
+// without signal. Only works from a web address (GitHub Pages or a local server).
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
