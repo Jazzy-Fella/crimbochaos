@@ -21,7 +21,7 @@
     -webkit-user-select: none; user-select: none;
     -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
   }
-  :root { --sat: env(safe-area-inset-top, 0px); } /* notch / status bar height, read by the game */
+  :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); } /* notch / home bar sizes, read by the game */
   body {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
     /* Pinned to the screen edges rather than sized with 100vh: saved home screen apps
@@ -64,13 +64,26 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
+const BUILD = '1.3'; // shown on the title screen, so you can tell your phone has the latest copy
+const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
     matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
 }
+// Use the real screen height on iPhone when the page is (or is nearly) full screen: as a
+// home screen app, or whenever the reported height is within a status bar of the screen
+// (in case iOS doesn't say it's a home screen app). Normal Safari, with its address bar,
+// reports much less and is left alone.
+function useScreenHeight() {
+  if (isHomeScreenApp()) return true;
+  if (!IS_IOS) return false;
+  const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
+  const full = innerWidth > innerHeight ? short : long;
+  return innerHeight < full && innerHeight >= full - 70;
+}
 function fitScreen() {
   const b = document.body;
-  if (isHomeScreenApp()) {
+  if (useScreenHeight()) {
     const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
     b.style.bottom = 'auto';
     b.style.height = (innerWidth > innerHeight ? short : long) + 'px';
@@ -921,6 +934,29 @@ function drawLogo(y0) {
 }
 
 // Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it
+// Hidden diagnostics (tap the version number on the title screen): what the phone
+// reports about its screen, to track down layout problems on real devices
+let debugOn = false;
+function drawDebug() {
+  const r = cv.getBoundingClientRect(), cs = getComputedStyle(document.documentElement);
+  const lines = [
+    'VERSION ' + BUILD,
+    'HOME APP ' + (isHomeScreenApp() ? 'YES' : 'NO') + '  IOS ' + (IS_IOS ? 'YES' : 'NO'),
+    'STANDALONE ' + String(navigator.standalone).toUpperCase(),
+    'SCREEN HEIGHT FIX ' + (useScreenHeight() ? 'ON' : 'OFF'),
+    'WINDOW ' + innerWidth + 'X' + innerHeight,
+    'SCREEN ' + screen.width + 'X' + screen.height,
+    'PAGE ' + document.body.clientWidth + 'X' + document.body.clientHeight,
+    'GAME TOP ' + Math.round(r.top) + ' BOTTOM ' + Math.round(r.bottom),
+    'SAFE TOP ' + parseFloat(cs.getPropertyValue('--sat')) + ' BOTTOM ' + parseFloat(cs.getPropertyValue('--sab')),
+    'GAME PIXELS ' + W + 'X' + H,
+    'TAP VERSION TO CLOSE',
+  ];
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  rect('rgba(5,7,15,0.92)', 4, 40, W - 8, lines.length * 8 + 8);
+  lines.forEach((l, i) => text(l, W / 2, 45 + i * 8, 1, i === lines.length - 1 ? '#f7c843' : '#ffffff'));
+}
+
 let pageBg = '';
 function draw() {
   // the page around the game matches the darker intro screens, then the night sky
@@ -939,6 +975,7 @@ function draw() {
   rect('#0b1026', 0, -OY, W, OY);
   drawScene();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (debugOn && state === 'ready') drawDebug();
 }
 
 // White haze that thickens towards the right, plus thick snow driving sideways
@@ -1014,6 +1051,10 @@ function drawScene() {
       y += 14;
     }
     if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
+    // version number in the bottom corner; tap it to show the screen diagnostics
+    const vy = H - OY - 9, label = 'V' + BUILD;
+    text(label, W - 4 - (label.length * 4 - 1) / 2, vy, 1, '#9aa6c4');
+    uiButtons.push({ x: W - 34, y: vy - 8, w: 34, h: 20, action: () => { debugOn = !debugOn; } });
   }
   if (state === 'over') {
     rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);

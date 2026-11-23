@@ -1,9 +1,10 @@
 // Crimbo Panic offline support (a service worker).
 // Keeps a copy of the game on the phone so it opens and plays with no signal.
-// Every file is served from the saved copy straight away, and quietly re-downloaded in
-// the background so the next launch picks up any updates.
+// With signal, the game files are always fetched fresh (so updates show up straight
+// away) and the saved copy is refreshed; with no signal, the saved copy is used.
+// The music is big and never changes, so it always comes from the saved copy.
 // Bump VERSION when files are added, removed or renamed below.
-const VERSION = 'crimbo-panic-v1';
+const VERSION = 'crimbo-panic-v2';
 const FILES = [
   './',
   'index.html',
@@ -31,13 +32,21 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   // Phones ask for music in chunks ("range" requests); answer those from the saved copy
   if (req.headers.get('range')) { e.respondWith(rangeResponse(req)); return; }
-  e.respondWith(caches.open(VERSION).then(async cache => {
+  e.respondWith((async () => {
+    const cache = await caches.open(VERSION);
     const saved = await cache.match(req, { ignoreSearch: true });
-    const fresh = fetch(req)
-      .then(res => { if (res.ok && res.status === 200) cache.put(req, res.clone()); return res; })
-      .catch(() => saved);
-    return saved || fresh;
-  }));
+    if (saved && /\.mp3$/.test(new URL(req.url).pathname)) return saved;
+    try {
+      // fresh copy, skipping the browser's own cache; give up after 4 s on a bad signal
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+      const res = await fetch(req.url, { cache: 'no-cache', signal: ctl.signal });
+      clearTimeout(timer);
+      if (res.ok && res.status === 200) cache.put(req, res.clone());
+      return res;
+    } catch {
+      return saved || Response.error();
+    }
+  })());
 });
 
 async function rangeResponse(req) {
