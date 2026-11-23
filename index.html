@@ -7,7 +7,9 @@
 <!-- "Add to Home Screen" opens full screen with no browser bars -->
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- solid black status bar: with "black-translucent", iPhone home screen apps get a window
+     that starts under the clock but stops a status bar short of the bottom of the screen -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Crimbo Panic">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -24,11 +26,9 @@
   :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); } /* notch / home bar sizes, read by the game */
   body {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-    /* Pinned to the screen edges rather than sized with 100vh: saved home screen apps
-       on recent iPhones can stop a 100vh page above the home bar, leaving a gap. It also
-       reaches down past the home bar's safe area, so there is never a gap at the bottom
-       (at worst a little of the snow and chimneys sits behind the home bar). */
-    position: fixed; top: 0; left: 0; right: 0; bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+    /* pinned to the edges of the window the phone gives us (rather than sized with 100vh,
+       which mobile browsers measure inconsistently) */
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     /* the game runs edge to edge, under the notch and home bar; only keep clear of the
        side notch when a phone is turned sideways */
     padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
@@ -64,32 +64,15 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.3'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '1.4'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
     matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
 }
-// Use the real screen height on iPhone when the page is (or is nearly) full screen: as a
-// home screen app, or whenever the reported height is within a status bar of the screen
-// (in case iOS doesn't say it's a home screen app). Normal Safari, with its address bar,
-// reports much less and is left alone.
-function useScreenHeight() {
-  if (isHomeScreenApp()) return true;
-  if (!IS_IOS) return false;
-  const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
-  const full = innerWidth > innerHeight ? short : long;
-  return innerHeight < full && innerHeight >= full - 70;
-}
+let SAFE_BOTTOM = 0; // home bar height in game pixels
 function fitScreen() {
   const b = document.body;
-  if (useScreenHeight()) {
-    const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
-    b.style.bottom = 'auto';
-    b.style.height = (innerWidth > innerHeight ? short : long) + 'px';
-  } else {
-    b.style.bottom = ''; b.style.height = '';
-  }
   const cs = getComputedStyle(b);
   const ratio = b.clientHeight / Math.max(1, b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
   const tall = ratio > 256 / W + 0.01;               // taller than 9:16, e.g. any phone held upright
@@ -101,6 +84,8 @@ function fitScreen() {
   cv.style.height = tall ? '' : `min(100%, ${(H / W * 100).toFixed(2)}vw)`;
   const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0;
   SAFE_TOP = sat * H / Math.max(1, cv.getBoundingClientRect().height);
+  const sab = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sab')) || 0;
+  SAFE_BOTTOM = sab * H / Math.max(1, cv.getBoundingClientRect().height);
 }
 fitScreen();
 // Phones report their final size late (rotating, browser bars sliding, home screen apps
@@ -943,7 +928,6 @@ function drawDebug() {
     'VERSION ' + BUILD,
     'HOME APP ' + (isHomeScreenApp() ? 'YES' : 'NO') + '  IOS ' + (IS_IOS ? 'YES' : 'NO'),
     'STANDALONE ' + String(navigator.standalone).toUpperCase(),
-    'SCREEN HEIGHT FIX ' + (useScreenHeight() ? 'ON' : 'OFF'),
     'WINDOW ' + innerWidth + 'X' + innerHeight,
     'SCREEN ' + screen.width + 'X' + screen.height,
     'PAGE ' + document.body.clientWidth + 'X' + document.body.clientHeight,
@@ -1052,7 +1036,7 @@ function drawScene() {
     }
     if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
     // version number in the bottom corner; tap it to show the screen diagnostics
-    const vy = H - OY - 9, label = 'V' + BUILD;
+    const vy = H - OY - 9 - Math.ceil(SAFE_BOTTOM), label = 'V' + BUILD; // above the home bar
     text(label, W - 4 - (label.length * 4 - 1) / 2, vy, 1, '#9aa6c4');
     uiButtons.push({ x: W - 34, y: vy - 8, w: 34, h: 20, action: () => { debugOn = !debugOn; } });
   }
