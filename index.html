@@ -226,6 +226,20 @@ const LIT = [1, 3, 5, 6]; // which trees get fairy lights
 const GRAV = 0.2, JUMP = -3.6, JUMP2 = -3.3, SANTA_X = 30, COYOTE = 6;
 let scrollX = 0, smoke = [], speed = 1.0;
 let birds = [];
+// ---------- Blizzards ----------
+// From 60 seconds into a run, every 20-30 seconds the snow comes down thick for a few
+// seconds: the background fades out, snow drives sideways and a white haze builds up
+// on the right, so you see what's coming later. Chimneys made around a blizzard come
+// out slightly wider and closer together to keep it fair.
+const BLIZZARD_START = 60 * 60;            // frames of play before the first one (60 s)
+let playFrames = 0, nextBlizzard = 0, blizzard = null, blizzardCount = 0;
+const blizzardFlakes = Array.from({ length: 180 }, () => ({ x: Math.random() * 144, y: Math.random() * 400, s: Math.random() }));
+function blizzardLevel() {                 // 0 = clear, 1 = full storm (eases in and out)
+  if (!blizzard) return 0;
+  return Math.min(1, blizzard.t / 40, (blizzard.dur - blizzard.t) / 60);
+}
+// true while a blizzard is on, or about to arrive by the time new chimneys scroll on screen
+const blizzardNear = () => !!blizzard || (playFrames > 0 && nextBlizzard - playFrames < 150);
 // Hungover Santa mutters now and then
 const SANTA_LINES = ["Ow my head", "I'm still drunk", "I feel like death", "I'm so hungover", "Why did I drink so much", "*burp*"];
 const SPEECH_TIME = 120;                   // frames a bubble stays up (2 s)
@@ -250,6 +264,8 @@ function reset() {
   platforms = [{ x: -10, w: 110, top: 200, kind: 'roof', landed: true }];
   santa = { x: SANTA_X, y: 200 - 13, vy: 0, grounded: COYOTE, jumps: 0 };
   gifts = []; particles = []; smoke = []; birds = [];
+  playFrames = 0; blizzard = null; blizzardCount = 0;
+  nextBlizzard = BLIZZARD_START + Math.random() * 300;
   speech = null; nextSpeech = 150 + Math.random() * 120; // first line after ~3-5 s
   score = 0; frame = 0; speed = 1.0; dist = 0;
   fillPlatforms();
@@ -271,8 +287,9 @@ function fillPlatforms() {
     const d = difficulty();
     // whole-pixel gaps keep every chimney on the same sub-pixel offset, so they all
     // round to the screen together and never wobble out of step with each other
-    const gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)));
-    const w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d)));
+    const easy = blizzardNear();   // blizzard: a bit closer and wider, never noticeably so
+    const gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)) * (easy ? 0.8 : 1));
+    const w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d))) + (easy ? 4 : 0);
     const rise = lerp(10, 26, d), drop = lerp(12, 34, d);
     const top = Math.max(115, Math.min(215, last.top + rnd(-rise, drop)));
     const p = { x: last.x + last.w + gap, w, top, kind: 'chimney', smokes: Math.random() < 0.5, landed: false };
@@ -499,6 +516,23 @@ function update() {
     speech = { lines: wrapText(SANTA_LINES[i], SPEECH_WRAP), life: SPEECH_TIME };
     nextSpeech = SPEECH_TIME + 480 + Math.random() * 360; // next one in ~10-16 s
   }
+
+  // blizzard timing: 3-5 s storms (a little longer later on), every 20-30 s after 60 s
+  playFrames++;
+  if (!blizzard && playFrames >= nextBlizzard) {
+    blizzard = { t: 0, dur: Math.min(360, 180 + Math.random() * 120 + blizzardCount * 20) };
+    blizzardCount++;
+  }
+  if (blizzard && ++blizzard.t >= blizzard.dur) {
+    blizzard = null;
+    nextBlizzard = playFrames + 1200 + Math.random() * 600;
+  }
+  const bl = blizzardLevel();
+  if (bl > 0) blizzardFlakes.forEach(f => {
+    f.x -= 2.5 + f.s * 2.5 + speed; f.y += 1.2 + f.s * 1.5;
+    if (f.x < -4) { f.x += W + 8; f.y = Math.random() * H - OY; }
+    if (f.y > H - OY) { f.y = -OY - 4; f.x = Math.random() * (W + 40); }
+  });
 
   // speed ramps up slowly the further you go
   dist += speed;
@@ -840,8 +874,23 @@ function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
+// White haze that thickens towards the right, plus thick snow driving sideways
+function drawBlizzard(bl) {
+  const g = ctx.createLinearGradient(56, 0, W, 0);
+  g.addColorStop(0, 'rgba(232,238,247,0)');
+  g.addColorStop(1, `rgba(232,238,247,${(0.62 * bl).toFixed(2)})`);
+  ctx.fillStyle = g; ctx.fillRect(0, -OY, W, H);
+  const n = Math.floor(blizzardFlakes.length * bl);
+  for (let i = 0; i < n; i++) {
+    const f = blizzardFlakes[i], big = f.s > 0.75;
+    rect(big ? '#ffffff' : 'rgba(255,255,255,0.8)', f.x, f.y, big ? 3 : 2, big ? 2 : 1);
+  }
+}
+
 function drawScene() {
   drawSky();
+  const bl = state === 'play' || state === 'over' ? blizzardLevel() : 0;
+  if (bl > 0) rect(`rgba(200,210,226,${(0.7 * bl).toFixed(2)})`, 0, -OY, W, H); // storm hides the background
   platforms.forEach(p => p.kind === 'roof' ? drawRoof(p) : drawChimney(p));
   smoke.forEach(p => {
     const fade = 1 - p.age / p.max, r = Math.round(p.r);
@@ -850,6 +899,7 @@ function drawScene() {
     ctx.fillRect(cx - r, cy - r + 1, r * 2 + 1, r * 2 - 1); // chunky pixel blob
     ctx.fillRect(cx - r + 1, cy - r, r * 2 - 1, r * 2 + 1);
   });
+  if (bl > 0) drawBlizzard(bl);   // birds, presents and Santa stay in front of the storm
   birds.forEach(b => ctx.drawImage(Math.floor(b.t / 6) % 2 ? birdA : birdB, Math.round(b.x - ox * birdFactor), Math.round(b.y + Math.sin(b.t / 12) * 2)));
   gifts.forEach(g => ctx.drawImage(presents[g.look], Math.round(g.x - ox), Math.round(g.y + Math.sin((frame + g.x) / 8))));
 
