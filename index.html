@@ -815,7 +815,7 @@ function draw() {
   // the page around the game matches the darker intro screens, then the night sky
   const bg = state === 'intro' || state === 'splash' ? '#05070f' : '#0b1026';
   if (bg !== pageBg) { document.documentElement.style.background = document.body.style.background = pageBg = bg; }
-  if (state === 'intro') { ctx.setTransform(1, 0, 0, 1, 0, 0); intro.draw(W, H, 'TAP TO SKIP'); return; }
+  if (state === 'intro') { ctx.setTransform(1, 0, 0, 1, 0, 0); intro.draw(W, H, ''); return; }
   if (state === 'splash') {
     ctx.setTransform(1, 0, 0, 1, 0, OY);
     rect('#05070f', 0, -OY, W, H);
