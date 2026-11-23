@@ -2,7 +2,7 @@
 // style of old console game intros. Self-contained: create one with a canvas 2D
 // context, then call update() 60 times a second and draw() every frame.
 //
-//   const intro = CrimboIntro.create(ctx);
+//   const intro = CrimboIntro.create(ctx, { tone, noise }); // sound makers optional
 //   intro.update(); intro.draw(W, H);   // W must be 144, H 256 or taller
 //   intro.next();                       // jump to the next scene
 //   intro.done                          // true once the last scene has finished
@@ -370,15 +370,74 @@
   ];
   const WHO_COLS = { SANTA: '#ff6b6b', BARMAN: '#9be29b', CROWD: '#7cc4ef' };
 
+  // ---------- Sound effects ----------
+  // The game passes in its own tone() and noise() makers (so the Sound FX setting
+  // applies); without them the intro is silent. Each scene's cue list runs once per
+  // frame and plays sounds on exact frames.
+  let T = () => {}, N = () => {};
+  const crunch = () => N({ dur: 0.05, vol: 0.12, f: 2500 });
+  const SCENE_SFX = [
+    t => { // 1. door slam, footsteps in the snow, nagging squeaks
+      if (t === 18) { N({ dur: 0.2, vol: 0.5, f: 300 }); T({ type: 'sine', f0: 90, f1: 45, dur: 0.18, vol: 0.3 }); }
+      if (t >= 20 && t < 170 && (t - 20) % 14 === 0) crunch();
+      if (t > 10 && t < 330 && t % 16 === 0) { T({ f0: 900, f1: 1300, dur: 0.05, vol: 0.025 }); T({ f0: 950, f1: 1400, dur: 0.05, vol: 0.025, delay: 0.08 }); }
+    },
+    t => { // 2. clinking glasses, Santa gulping his pint
+      if (t === 25) { T({ type: 'sine', f0: 2400, dur: 0.15, vol: 0.05 }); T({ type: 'sine', f0: 3200, dur: 0.15, vol: 0.05, delay: 0.06 }); }
+      if (Math.sin(t / 30) > 0.6 && Math.sin((t - 1) / 30) <= 0.6) [0, 0.16, 0.32].forEach(d => T({ type: 'sine', f0: 320, f1: 150, dur: 0.12, vol: 0.09, delay: d }));
+    },
+    t => { // 3. thumping dance beat and the crowd cheering
+      if (t % 30 === 0) T({ type: 'sine', f0: 150, f1: 40, dur: 0.15, vol: 0.35 });
+      if (t % 30 === 15) N({ dur: 0.04, vol: 0.06, f: 7000, type: 'highpass' });
+      [0, 25, 50].forEach(k => { if ((t + k) % 75 === 0) { N({ dur: 0.5, vol: 0.12, f: 1200, type: 'bandpass' }); T({ type: 'sine', f0: 1800, f1: 2600, dur: 0.3, vol: 0.03 }); } });
+    },
+    t => { // 4. staggering footsteps and hiccups
+      if (t >= 60 && t < 360 && t % 18 === 0) crunch();
+      if (t % 70 === 51) T({ f0: 500, f1: 1100, dur: 0.07, vol: 0.06 });
+    },
+    t => { // 5. whooshing about, a falling whistle, then the crash
+      if (t === 10 || t === 85) N({ dur: 0.7, vol: 0.12, f: 600, f1: 2200, type: 'bandpass' });
+      if (t === 170) T({ type: 'sine', f0: 1600, f1: 200, dur: 1.05, vol: 0.06 });
+      if (t === 235) {
+        N({ dur: 1.3, vol: 0.7, f: 800, f1: 80 });
+        T({ type: 'sine', f0: 90, f1: 30, dur: 0.6, vol: 0.45 });
+        T({ f0: 320, f1: 90, dur: 0.3, vol: 0.08 });
+      }
+    },
+    t => { // 6. dizzy tweets, then a sad trombone after "Oh sh*t"
+      if (t > 30 && t < 330 && t % 50 === 0) { T({ type: 'sine', f0: 2600, f1: 3400, dur: 0.05, vol: 0.04 }); T({ type: 'sine', f0: 2800, f1: 3600, dur: 0.05, vol: 0.04, delay: 0.08 }); }
+      if (t === 190) [[392, 0], [370, 0.4], [349, 0.8]].forEach(([f, d]) => T({ type: 'triangle', f0: f, dur: 0.35, vol: 0.1, delay: d }));
+      if (t === 190) T({ type: 'triangle', f0: 330, f1: 290, dur: 1.0, vol: 0.1, delay: 1.2 });
+    },
+  ];
+  // Talking blips as the dialogue types out (deeper for Santa), and for captions
+  const VOICE = { SANTA: 200, BARMAN: 330, CROWD: 520 };
+  function typeBlips(S, t) {
+    if (S.caption && t % 6 === 0) { const ch = S.caption[t / 3]; if (ch && ch !== ' ') T({ f0: 1100, dur: 0.02, vol: 0.02 }); }
+    const line = S.lines.filter(l => t >= l.at).pop();
+    if (!line) return;
+    const k = t - line.at;
+    if (k % 4 !== 0) return;
+    const ch = line.text[k / 2];
+    if (ch && ch !== ' ') T({ f0: (VOICE[line.who] || 400) * (1 + ((k * 7) % 5 - 2) * 0.04), dur: 0.035, vol: 0.035 });
+  }
+
   // ---------- The player ----------
-  function create(ctx) {
+  function create(ctx, sound) {
     let scene = 0, t = 0;
+    T = (sound && sound.tone) || (() => {});
+    N = (sound && sound.noise) || (() => {});
     const intro = {
       get done() { return scene >= SCENES.length; },
       get scene() { return scene; },
       seek(s, f) { scene = s; t = f; },
       next() { scene++; t = 0; },
-      update() { if (scene < SCENES.length && ++t >= SCENES[scene].dur) { scene++; t = 0; } },
+      update() {
+        if (scene >= SCENES.length) return;
+        SCENE_SFX[scene](t);
+        typeBlips(SCENES[scene], t);
+        if (++t >= SCENES[scene].dur) { scene++; t = 0; }
+      },
       draw(W, H, hint = 'TAP TO SKIP') {
         if (scene >= SCENES.length) return;
         C = ctx;

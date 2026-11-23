@@ -11,20 +11,44 @@
 </style>
 </head>
 <body>
-<!-- Preview of the intro movie on its own. Tap to jump to the next scene; it loops. -->
+<!-- Preview of the intro movie on its own. Tap to jump to the next scene (the first tap
+     also turns the sound on); it loops. -->
 <canvas id="c" width="144" height="256"></canvas>
 <script src="intro.js"></script>
 <script>
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 ctx.imageSmoothingEnabled = false;
-let intro = CrimboIntro.create(ctx), wait = 0;
-addEventListener('pointerdown', () => intro.done ? (intro = CrimboIntro.create(ctx)) : intro.next());
+// Sound: same little synth as the game; starts on the first tap (browsers require it)
+let ac = null, buf = null;
+function tone({ type = 'square', f0, f1, dur, vol = 0.08, delay = 0 }) {
+  if (!ac) return;
+  const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise({ dur, vol = 0.1, f = 1000, f1, type = 'lowpass', delay = 0 }) {
+  if (!ac) return;
+  if (!buf) { buf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const t = ac.currentTime + delay, src = ac.createBufferSource(), flt = ac.createBiquadFilter(), g = ac.createGain();
+  src.buffer = buf; src.loop = true; flt.type = type; flt.frequency.setValueAtTime(f, t);
+  if (f1) flt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(flt).connect(g).connect(ac.destination); src.start(t); src.stop(t + dur + 0.05);
+}
+const startSound = () => { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); };
+['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, startSound));
+
+const newIntro = () => CrimboIntro.create(ctx, { tone, noise });
+let intro = newIntro(), wait = 0;
+addEventListener('pointerdown', () => { startSound(); intro.done ? (intro = newIntro()) : intro.next(); });
 const STEP = 1000 / 60; let last = performance.now(), acc = 0;
 (function loop(now) {
   acc = Math.min(acc + (now - last), 200); last = now;
   while (acc >= STEP) {
     acc -= STEP;
-    if (intro.done) { if (++wait > 90) { intro = CrimboIntro.create(ctx); wait = 0; } }
+    if (intro.done) { if (++wait > 90) { intro = newIntro(); wait = 0; } }
     else intro.update();
   }
   if (intro.done) { ctx.fillStyle = '#05070f'; ctx.fillRect(0, 0, 144, 256); }

@@ -334,6 +334,26 @@ function tone({ type = 'square', f0, f1, dur, vol = 0.08, delay = 0 }) {
   o.connect(g).connect(audio.destination);
   o.start(t); o.stop(t + dur + 0.02);
 }
+// Filtered white noise, for thuds, crunches, cheers, whooshes and crashes
+let noiseBuf = null;
+function noise({ dur, vol = 0.1, f = 1000, f1, type = 'lowpass', delay = 0 }) {
+  if (!audio || fxMuted) return;
+  if (!noiseBuf) {
+    noiseBuf = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const t = audio.currentTime + delay;
+  const src = audio.createBufferSource(), flt = audio.createBiquadFilter(), g = audio.createGain();
+  src.buffer = noiseBuf; src.loop = true;
+  flt.type = type;
+  flt.frequency.setValueAtTime(f, t);
+  if (f1) flt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(flt).connect(g).connect(audio.destination);
+  src.start(t); src.stop(t + dur + 0.05);
+}
 const sfx = {
   jump()       { tone({ f0: 280, f1: 560, dur: 0.12 }); },                      // springy "boing" up
   doubleJump() { tone({ type: 'triangle', f0: 600, f1: 1200, dur: 0.15, vol: 0.12 });
@@ -347,7 +367,7 @@ const sfx = {
 
 function jump() {
   initAudio();
-  if (state === 'splash') { intro = CrimboIntro.create(ctx); state = 'intro'; return; }
+  if (state === 'splash') { intro = CrimboIntro.create(ctx, { tone, noise }); state = 'intro'; return; }
   if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
   if (state === 'ready') { state = 'play'; return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
