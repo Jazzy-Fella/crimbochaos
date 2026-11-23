@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Crimbo Panic">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <title>Crimbo Panic</title>
 <style>
   html, body {
@@ -18,11 +21,13 @@
     -webkit-user-select: none; user-select: none;
     -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
   }
+  :root { --sat: env(safe-area-inset-top, 0px); } /* notch / status bar height, read by the game */
   body {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
     height: 100vh; height: 100dvh;   /* dvh = the visible height, without mobile browser bars */
-    /* keep clear of the notch / home bar */
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    /* the game runs edge to edge, under the notch and home bar; only keep clear of the
+       side notch when a phone is turned sideways */
+    padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
   }
   canvas {
     image-rendering: pixelated;
@@ -32,6 +37,9 @@
     touch-action: none;
     cursor: pointer;
   }
+  /* phones held upright: stretch to every edge (the game is sized to match the screen
+     shape, so this is never visibly stretched) */
+  canvas.fill { width: 100%; height: 100%; aspect-ratio: auto; }
 </style>
 </head>
 <body>
@@ -47,16 +55,20 @@ let OY = 0; // on tall screens the 256px-high game is shifted down by this much 
 // Tall phones (e.g. 9:19.5) would show empty bars above and below a 9:16 game, so the
 // game grows taller to fill them (up to 320px; the extra space is at the bottom, where
 // the chimneys and snow just reach further down). Desktop/landscape stays 144x256.
+let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of text
 function fitScreen() {
   const b = document.body;
-  const cs = getComputedStyle(b); // measure inside the notch / home-bar padding
-  const ratio = (b.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) /
-                Math.max(1, b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
-  const newH = Math.max(256, Math.min(320, Math.round(W * ratio)));
+  const cs = getComputedStyle(b);
+  const ratio = b.clientHeight / Math.max(1, b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const tall = ratio > 256 / W + 0.01;               // taller than 9:16, e.g. any phone held upright
+  const newH = Math.max(256, Math.min(400, Math.round(W * ratio)));
   if (newH !== H) { H = newH; cv.height = H; ctx.imageSmoothingEnabled = false; }
   OY = Math.floor((H - 256) / 2);
-  cv.style.aspectRatio = `${W} / ${H}`;
-  cv.style.height = `min(100%, ${(H / W * 100).toFixed(2)}vw)`;
+  cv.classList.toggle('fill', tall);
+  cv.style.aspectRatio = tall ? '' : `${W} / ${H}`;
+  cv.style.height = tall ? '' : `min(100%, ${(H / W * 100).toFixed(2)}vw)`;
+  const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0;
+  SAFE_TOP = sat * H / Math.max(1, cv.getBoundingClientRect().height);
 }
 fitScreen();
 addEventListener('resize', fitScreen);
@@ -771,11 +783,11 @@ function drawScene() {
   if (speech && state === 'play') drawSpeech();
   flakes.forEach(f => rect('#ffffff', f.x, f.y, 1, 1));
 
-  if (state === 'play') text(score, W / 2, 12, 2);
+  if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // below the notch
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
     const lineH = 7, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 16 + 12 + (best ? 8 : 0) + 6 + 5 + 6;
-    const py = Math.round((santa.y - 4 - panelH - OY) / 2), px = 6, pw = W - 12;
+    const py = Math.round((santa.y - 4 - panelH - OY + SAFE_TOP) / 2), px = 6, pw = W - 12;
     rect('rgba(11,16,38,0.94)', px, py, pw, panelH);
     rect('#f7c843', px, py, pw, 1); rect('#f7c843', px, py + panelH - 1, pw, 1);
     rect('#f7c843', px, py, 1, panelH); rect('#f7c843', px + pw - 1, py, 1, panelH);
