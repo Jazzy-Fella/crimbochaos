@@ -714,6 +714,15 @@ function drawSpeech() {
 
 // Clickable areas on the title screen, rebuilt each time it is drawn
 let uiButtons = [];
+// Title screen button: gold frame, dark fill, cream text; `on` (true/false) adds a tick box
+function menuButton(x, y, w, label, on, action) {
+  rect('#f7c843', x, y, w, 11); rect('#2a1f0c', x + 1, y + 1, w - 2, 9);
+  const tw = label.length * 4 - 1 + (on === null ? 0 : 10);
+  let tx = Math.round(x + w / 2 - tw / 2);
+  if (on !== null) { drawCheckbox(tx, y + 2, on); tx += 10; }
+  text(label, tx + (label.length * 4 - 1) / 2, y + 3, 1, '#ffe680', '#2a1f0c');
+  uiButtons.push({ x: x - 1, y: y - 1, w: w + 2, h: 13, action });
+}
 function drawCheckbox(x, y, on) {
   rect('#ffffff', x, y, 7, 7);
   rect('#0b1026', x + 1, y + 1, 5, 5);
@@ -851,7 +860,7 @@ function drawScene() {
   if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // below the notch
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
-    const lineH = 7, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 16 + 12 + 15 + (best ? 8 : 0) + 6 + 5 + 6;
+    const lineH = 6, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 17 + 29 + (best ? 14 : 0) + 11;
     const py = Math.round((santa.y - 4 - panelH - OY + SAFE_TOP) / 2), px = 6, pw = W - 12;
     rect('rgba(11,16,38,0.94)', px, py, pw, panelH);
     rect('#f7c843', px, py, pw, 1); rect('#f7c843', px, py + panelH - 1, pw, 1);
@@ -861,27 +870,23 @@ function drawScene() {
     STORY_LINES.forEach(l => { text(l, W / 2, y, 1); y += lineH; });
     y += 5;
     text('TAP TO JUMP', W / 2, y, 1, '#bfe8ff'); y += 8;
-    text('TAP AGAIN TO DOUBLE JUMP', W / 2, y, 1, '#bfe8ff'); y += 10;
-    // sound settings: two clickable tick boxes (also M and F keys)
+    text('TAP AGAIN TO DOUBLE JUMP', W / 2, y, 1, '#bfe8ff'); y += 9;
+    // options: three matching buttons (Music and Sound FX show a tick when on)
     uiButtons = [];
-    const opts = [['MUSIC', !musicMuted, toggleMusic], ['SOUND FX', !fxMuted, toggleFx]];
-    const widths = opts.map(([label]) => 7 + 3 + label.length * 4 - 1);
-    let ux = Math.round(W / 2 - (widths[0] + 12 + widths[1]) / 2);
-    opts.forEach(([label, on, action], i) => {
-      drawCheckbox(ux, y, on);
-      text(label, ux + 10 + (label.length * 4 - 1) / 2, y + 1, 1, on ? '#ffffff' : '#7f8aa8');
-      uiButtons.push({ x: ux - 2, y: y - 2, w: widths[i] + 4, h: 11, action });
-      ux += widths[i] + 12;
-    });
-    y += 11;
-    // "Play intro" button to watch the intro movie again
-    const label = 'PLAY INTRO', bw = label.length * 4 - 1 + 10, bx = Math.round(W / 2 - bw / 2);
-    rect('#f7c843', bx, y, bw, 11); rect('#3a2a10', bx + 1, y + 1, bw - 2, 9);
-    text(label, W / 2, y + 3, 1, '#ffe680');
-    uiButtons.push({ x: bx - 2, y: y - 2, w: bw + 4, h: 15, action: playIntro });
+    const bw = 60, gap = 6, bx = Math.round(W / 2 - (bw * 2 + gap) / 2);
+    menuButton(bx, y, bw, 'MUSIC', !musicMuted, toggleMusic);
+    menuButton(bx + bw + gap, y, bw, 'SOUND FX', !fxMuted, toggleFx);
+    y += 14;
+    menuButton(bx, y, bw * 2 + gap, 'PLAY INTRO', null, playIntro);
     y += 15;
-    if (best) { text('BEST ' + best, W / 2, y, 1, '#ffe680'); y += 8; }
-    if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y + 6, 1, '#f7c843');
+    // best score on one line: small label, big gold number
+    if (best) {
+      const nw = String(best).length * 8 - 2, total = 15 + 4 + nw, sx = W / 2 - total / 2;
+      text('BEST', sx + 7.5, y + 3, 1, '#bfe8ff');
+      text(String(best), sx + 19 + nw / 2, y, 2, '#ffe680');
+      y += 14;
+    }
+    if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
   }
   if (state === 'over') {
     rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);
