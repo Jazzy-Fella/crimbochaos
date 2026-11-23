@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1026">
+<!-- "Add to Home Screen" opens full screen with no browser bars -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Crimbo Panic">
+<title>Crimbo Panic</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; background: #0b1026; overflow: hidden;
+    /* phones: no scrolling, pinch/double-tap zoom, pull-to-refresh, text selection or tap flashes */
+    touch-action: none; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+    height: 100vh; height: 100dvh;   /* dvh = the visible height, without mobile browser bars */
+    /* keep clear of the notch / home bar */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    height: min(100%, 177.78vw);     /* fill the height, or the width on very narrow screens (9:16) */
+    aspect-ratio: 9 / 16;
+    touch-action: none;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="144" height="256"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const W = cv.width;
+let H = cv.height;
+let OY = 0; // on tall screens the 256px-high game is shifted down by this much to sit centred
+
+// Tall phones (e.g. 9:19.5) would show empty bars above and below a 9:16 game, so the
+// game grows taller to fill them (up to 320px; the extra space is at the bottom, where
+// the chimneys and snow just reach further down). Desktop/landscape stays 144x256.
+function fitScreen() {
+  const b = document.body;
+  const cs = getComputedStyle(b); // measure inside the notch / home-bar padding
+  const ratio = (b.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) /
+                Math.max(1, b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const newH = Math.max(256, Math.min(320, Math.round(W * ratio)));
+  if (newH !== H) { H = newH; cv.height = H; ctx.imageSmoothingEnabled = false; }
+  OY = Math.floor((H - 256) / 2);
+  cv.style.aspectRatio = `${W} / ${H}`;
+  cv.style.height = `min(100%, ${(H / W * 100).toFixed(2)}vw)`;
+}
+fitScreen();
+addEventListener('resize', fitScreen);
+const GROUND = 196; // baseline of the background scenery
+
+// ---------- Pixel sprites ----------
+// Each char maps to a color; '.' is transparent.
+const PAL = {
+  R: '#d62839', r: '#9e1b2a', W: '#ffffff', w: '#d8e2f0', S: '#f2c09b',
+  K: '#1b1b1b', G: '#f7c843', g: '#b8862b', B: '#7a4a24', b: '#4f2f17',
+  N: '#e23b3b', E: '#2e7d32', e: '#1b5e20', Y: '#ffe680', O: '#ff9a3c',
+  H: '#808080', I: '#bfe8ff', i: '#7cc4ef', C: '#8c3b2c', c: '#5e241a', M: '#c7c7c7'
+};
+
+function makeSprite(rows) {
+  const h = rows.length, w = rows[0].length;
+  const s = document.createElement('canvas');
+  s.width = w; s.height = h;
+  const x = s.getContext('2d');
+  rows.forEach((row, y) => {
+    [...row].forEach((ch, px) => {
+      if (ch !== '.' && PAL[ch]) { x.fillStyle = PAL[ch]; x.fillRect(px, y, 1, 1); }
+    });
+  });
+  return s;
+}
+
+// Santa in sleigh with one reindeer (two wing-ish leg frames)
+const sleighA = makeSprite([
+  '......RRW..................',
+  '.....RRRRW...........B.B...',
+  '....RRRRR............BbB...',
+  '....SSKSS............bB....',
+  '....WWWWW...........BBBN...',
+  '..GGRRRRRRSHHHHHHHHBBBBB...',
+  '.GRRRRRRRRRRRRRGG..BBBB....',
+  '.GRRRRRRRRRRRRRG.BBBBBB....',
+  '..GRRRRGGRRRRRG..BBBBBB....',
+  '...GRRRRRRRRRG...B.B..B....',
+  '....GGGGGGGGG...B...B......',
+  '..g..gg.....g..............',
+  '...gggggggggggg............',
+]);
+const sleighB = makeSprite([
+  '......RRW..................',
+  '.....RRRRW...........B.B...',
+  '....RRRRR............BbB...',
+  '....SSKSS............bB....',
+  '....WWWWW...........BBBN...',
+  '..GGRRRRRRSHHHHHHHHBBBBB...',
+  '.GRRRRRRRRRRRRRGG..BBBB....',
+  '.GRRRRRRRRRRRRRG.BBBBBB....',
+  '..GRRRRGGRRRRRG..BBBBBB....',
+  '...GRRRRRRRRRG....B..B.....',
+  '....GGGGGGGGG.....B..B.....',
+  '..g..gg.....g..............',
+  '...gggggggggggg............',
+]);
+
+// The odd bird: a grumpy robin flying left, two wing frames
+const birdA = makeSprite([
+  '......bb..',
+  '......bbb.',
+  '..BB..bb..',
+  '.BKBBBBBBb',
+  'OBBBBBBBb.',
+  '.RRRBBBB..',
+  '..RRRB....',
+]);
+const birdB = makeSprite([
+  '..........',
+  '..BB......',
+  '.BKBBBBBBb',
+  'OBBBBBBBb.',
+  '.RRRBbbB..',
+  '..RRbbb...',
+  '.....bb...',
+]);
+
+// Presents in a mix of wrapping colors: X = paper, x = shaded side, Y = ribbon
+const PRESENT_ROWS = [
+  '..Y.Y..',
+  '...Y...',
+  'XXXYXXx',
+  'XXXYXXx',
+  'YYYYYYY',
+  'XXXYXXx',
+  'XXXYXXx',
+];
+const PRESENT_COLORS = [
+  ['#d62839', '#9e1b2a', '#f7c843'], // red with gold ribbon
+  ['#2e9e44', '#1b6b2c', '#ff4d4d'], // green with red ribbon
+  ['#2f6fd6', '#1d4a99', '#ffffff'], // blue with white ribbon
+  ['#8e44c9', '#5e2a8a', '#f7c843'], // purple with gold ribbon
+  ['#ff6fae', '#c94a85', '#ffffff'], // pink with white ribbon
+  ['#f2b134', '#b8862b', '#d62839'], // gold with red ribbon
+  ['#1fb5a8', '#137a71', '#ffe680'], // teal with yellow ribbon
+];
+const presents = PRESENT_COLORS.map(([paper, shade, ribbon]) => {
+  const c = document.createElement('canvas');
+  c.width = 7; c.height = 7;
+  const x = c.getContext('2d');
+  PRESENT_ROWS.forEach((row, py) => [...row].forEach((ch, px) => {
+    const col = { X: paper, x: shade, Y: ribbon }[ch];
+    if (col) { x.fillStyle = col; x.fillRect(px, py, 1, 1); }
+  }));
+  return c;
+});
+
+// Pine trees in several sizes, built from stacked tiers with snowy tips
+function makeTree(h) {
+  const trunk = 3, f = h - trunk, tiers = h < 12 ? 2 : 3;
+  const rows = [];
+  for (let i = 0; i < tiers; i++) {
+    const y0 = Math.round(i * f / tiers), y1 = Math.round((i + 1) * f / tiers) + (i < tiers - 1 ? 1 : 0);
+    for (let y = y0; y < y1; y++) rows[y] = { hw: i + Math.floor((y - y0) * 0.9), top: y === y0 && i > 0 };
+  }
+  const maxHw = Math.max(...rows.map(r => r.hw));
+  const w = maxHw * 2 + 1, c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  rows.forEach((r, y) => {
+    x.fillStyle = '#2e7d32'; x.fillRect(maxHw - r.hw, y, r.hw * 2 + 1, 1);
+    x.fillStyle = '#1b5e20'; x.fillRect(maxHw + 1, y, r.hw, 1);           // shaded right side
+    if (r.hw > 0) { x.fillStyle = '#ffffff'; x.fillRect(maxHw - r.hw, y, 1, 1); } // snow on left edge
+  });
+  x.fillStyle = '#ffffff'; x.fillRect(maxHw, 0, 1, 1);                     // snowy tip
+  x.fillStyle = '#4f2f17'; x.fillRect(maxHw, f, 1, trunk);
+  // fairy light spots: draped rows of bulbs spaced across the branches
+  c.lights = [];
+  const COLORS = ['#ff4d4d', '#ffd84d', '#4dd2ff', '#7dff6b', '#ff7de9'];
+  for (let y = 3; y < f; y += 3) {
+    const hw = rows[y].hw;
+    for (let dx = -hw + 1 + (y % 2); dx < hw; dx += 3)
+      c.lights.push({ x: maxHw + dx, y, c: COLORS[c.lights.length % COLORS.length] });
+  }
+  return c;
+}
+const TREE_SIZES = [10, 18, 13, 24, 9, 15, 20, 11];
+const trees = TREE_SIZES.map(makeTree);
+const LIT = [1, 3, 5, 6]; // which trees get fairy lights
+
+// ---------- Game state ----------
+const GRAV = 0.2, JUMP = -3.6, JUMP2 = -3.3, SANTA_X = 30, COYOTE = 6;
+let scrollX = 0, smoke = [], speed = 1.0;
+let birds = [];
+// Hungover Santa mutters now and then
+const SANTA_LINES = ["Ow my head", "I'm still drunk", "I feel like death", "I'm so hungover", "Why did I drink so much", "*burp*"];
+const SPEECH_TIME = 120;                   // frames a bubble stays up (2 s)
+const SPEECH_WRAP = 7;                     // max characters per line, keeps the bubble about sleigh-width
+let speech = null, nextSpeech = 0, lastLine = -1;
+let state, santa, platforms, gifts, score, best, frame, flakes, stars, particles, deathMsg, dist;
+
+try { best = +localStorage.getItem('sleighBest') || 0; } catch { best = 0; }
+
+stars = Array.from({ length: 40 }, () => ({
+  x: Math.random() * W, y: Math.random() * (GROUND - 40) - 40, t: Math.random() * 100
+}));
+flakes = Array.from({ length: 50 }, () => ({
+  x: Math.random() * W, y: Math.random() * H, s: Math.random() * 0.5 + 0.3
+}));
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function reset() {
+  state = 'ready';
+  // start on a wide snowy rooftop
+  platforms = [{ x: -10, w: 110, top: 200, kind: 'roof', landed: true }];
+  santa = { x: SANTA_X, y: 200 - 13, vy: 0, grounded: COYOTE, jumps: 0 };
+  gifts = []; particles = []; smoke = []; birds = [];
+  speech = null; nextSpeech = 150 + Math.random() * 120; // first line after ~3-5 s
+  score = 0; frame = 0; speed = 1.0; dist = 0;
+  fillPlatforms();
+}
+
+// Keep generating chimneys ahead of the player
+// ---------- Difficulty progression ----------
+// 0 at the start, rising to 1 after FULL_DIFFICULTY pixels travelled (roughly 90 seconds).
+// Early on: slow, wide chimneys packed close together, gentle height changes, no birds.
+// Later: faster, narrower chimneys with bigger gaps, bigger height changes, more birds.
+const FULL_DIFFICULTY = 9000;
+const lerp = (a, b, t) => a + (b - a) * t;
+const difficulty = () => Math.min(1, dist / FULL_DIFFICULTY);
+
+// Keep generating chimneys ahead of the player
+function fillPlatforms() {
+  let last = platforms[platforms.length - 1];
+  while (last.x + last.w < W + 80) {
+    const d = difficulty();
+    // whole-pixel gaps keep every chimney on the same sub-pixel offset, so they all
+    // round to the screen together and never wobble out of step with each other
+    const gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)));
+    const w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d)));
+    const rise = lerp(10, 26, d), drop = lerp(12, 34, d);
+    const top = Math.max(115, Math.min(215, last.top + rnd(-rise, drop)));
+    const p = { x: last.x + last.w + gap, w, top, kind: 'chimney', smokes: Math.random() < 0.5, landed: false };
+    if (Math.random() < 0.5) gifts.push({
+      x: last.x + last.w + Math.round(gap / 2) - 3, y: Math.min(last.top, top) - rnd(lerp(18, 26, d), lerp(30, 42, d)), got: false,
+      look: Math.floor(Math.random() * presents.length)
+    });
+    // birds start appearing after a while, then get more common
+    if (d > 0.15 && w >= 20 && Math.random() < lerp(0.08, 0.3, (d - 0.15) / 0.85))
+      birds.push({ x: p.x + p.w, y: top - 9, t: Math.random() * 60 });
+    platforms.push(p);
+    last = p;
+  }
+}
+reset();
+
+function burst(x, y, n, c, spd = 1, life = 20) {
+  for (let i = 0; i < n; i++) particles.push({
+    x, y, vx: (Math.random() - 0.5) * 2 * spd, vy: (Math.random() - 0.5) * 2 * spd, life, c
+  });
+}
+
+// ---------- Sound effects ----------
+// Little chiptune blips made on the fly with Web Audio, so there are no sound files.
+// Browsers only allow sound after the player taps or presses a key, so the audio
+// starts on the first jump() call.
+let audio = null;
+
+// Background music: loops quietly under the sound effects. Press M to mute/unmute.
+// Background music loops quietly under the sound effects; press M to mute/unmute.
+// It is created on the first tap/keypress because browsers block sound before then.
+const MUSIC_FILE = 'audio/music.mp3';
+let music = null, musicMuted = false, fxMuted = false;
+// Remember the player's Music / FX choices between visits
+try { musicMuted = localStorage.getItem('crimboMusicOff') === '1'; fxMuted = localStorage.getItem('crimboFxOff') === '1'; } catch {}
+function saveSound() {
+  try { localStorage.setItem('crimboMusicOff', musicMuted ? '1' : '0'); localStorage.setItem('crimboFxOff', fxMuted ? '1' : '0'); } catch {}
+}
+function toggleMusic() {
+  musicMuted = !musicMuted; saveSound();
+  if (!music) return;
+  if (musicMuted) music.pause(); else music.play().catch(() => {});
+}
+function toggleFx() { fxMuted = !fxMuted; saveSound(); }
+
+function initAudio() {
+  if (!music) {
+    music = new Audio(MUSIC_FILE);
+    music.loop = true;
+    music.volume = 0.25;
+  }
+  if (music && !musicMuted && music.paused) music.play().catch(() => {});
+  if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
+  if (audio.state === 'suspended') audio.resume();
+}
+function tone({ type = 'square', f0, f1, dur, vol = 0.08, delay = 0 }) {
+  if (!audio || fxMuted) return;
+  const t = audio.currentTime + delay;
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+const sfx = {
+  jump()       { tone({ f0: 280, f1: 560, dur: 0.12 }); },                      // springy "boing" up
+  doubleJump() { tone({ type: 'triangle', f0: 600, f1: 1200, dur: 0.15, vol: 0.12 });
+                 tone({ f0: 900, f1: 1800, dur: 0.1, vol: 0.04, delay: 0.04 }); }, // magic sparkle
+  present()    { [988, 1319, 1976].forEach((f, i) => tone({ f0: f, dur: 0.09, vol: 0.07, delay: i * 0.06 })); }, // ding-ding-ding
+  bird()       { [0, 0.14].forEach(d => {                                           // "tweet tweet"
+                   tone({ type: 'sine', f0: 2600, f1: 3600, dur: 0.06, vol: 0.08, delay: d });
+                   tone({ type: 'sine', f0: 3400, f1: 2400, dur: 0.06, vol: 0.08, delay: d + 0.06 });
+                 }); },
+};
+
+function jump() {
+  initAudio();
+  if (state === 'ready') { state = 'play'; return; }
+  if (state === 'over') { if (frame > 30) reset(); return; }
+  if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
+    santa.vy = JUMP; santa.jumps = 1; santa.grounded = 0;
+    burst(santa.x + 6, santa.y + 13, 5, '#ffffff', 0.6);
+    sfx.jump();
+  } else if (santa.jumps < 2) {                   // magic double jump
+    santa.vy = JUMP2; santa.jumps = 2;
+    burst(santa.x + 12, santa.y + 12, 12, '#ffe680', 1.2, 24);
+    sfx.doubleJump();
+  }
+}
+
+addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    e.preventDefault(); if (!e.repeat) jump();
+  }
+  if (e.code === 'KeyM' && !e.repeat) toggleMusic();
+  if (e.code === 'KeyF' && !e.repeat) toggleFx();
+});
+// Taps anywhere on the screen count (not just on the game itself), so on a phone
+// the dark bars either side of the game are tappable too.
+addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  e.preventDefault();
+  // tick boxes on the title screen take the click instead of starting the game
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * W / r.width, py = (e.clientY - r.top) * H / r.height - OY;
+  const hit = state === 'ready' && uiButtons.find(b => px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h);
+  if (hit) { hit.action(); initAudio(); return; }
+  jump();
+}, { passive: false });
+// Phones only allow sound to start when a finger lifts (not when it lands), so
+// also try to start the audio then.
+['pointerup', 'touchend', 'click'].forEach(ev => addEventListener(ev, () => initAudio()));
+addEventListener('contextmenu', e => e.preventDefault()); // no long-press menu
+// Pause the music when the player switches app or locks the phone
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (music) music.pause();
+    if (audio) audio.suspend();
+  } else {
+    if (audio) audio.resume();
+    if (music && !musicMuted) music.play().catch(() => {});
+  }
+});
+
+function die(msg) {
+  if (state !== 'play') return;
+  state = 'over'; frame = 0; deathMsg = msg; speech = null;
+  if (score > best) { best = score; try { localStorage.setItem('sleighBest', best); } catch {} }
+  burst(santa.x + 12, santa.y + 6, 20, '#d62839', 1.5, 40);
+  burst(santa.x + 12, santa.y + 6, 12, '#ffffff', 1.5, 40);
+  if (msg === 'CRASH!') santa.vy = -2;
+}
+
+// ---------- Update ----------
+function update() {
+  frame++;
+  const moving = state === 'play' ? speed : 0; // scenery stays still until Santa sets off
+  flakes.forEach(f => {
+    f.y += f.s; f.x -= f.s * 0.2 + moving * 0.6;
+    if (f.y > H - OY) { f.y = -OY - 2; f.x = Math.random() * W; }
+    if (f.x < 0) f.x += W;
+  });
+  particles.forEach(p => { p.x += p.vx - moving; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+  scrollX += moving;
+
+  // chimney smoke: puffs rise, drift left on the wind, grow and fade
+  platforms.forEach(p => {
+    if (p.smokes && frame % 9 === 0 && p.x < W)
+      smoke.push({ x: p.x + 6 + Math.random() * (p.w - 12), y: p.top, age: 0, max: 50 + Math.random() * 20, r: 1.5, seed: Math.random() * 60 });
+  });
+  smoke.forEach(p => {
+    p.x += -moving - 0.15 + Math.sin((p.age + p.seed) / 10) * 0.15;
+    p.y -= 0.35; p.age++;
+    p.r = 1.5 + p.age / 14;
+  });
+  smoke = smoke.filter(p => p.age < p.max);
+
+  if (state === 'ready') return;
+  if (state === 'over') {
+    if (santa.y < H + 20) { santa.vy = Math.min(santa.vy + GRAV, 6); santa.y += santa.vy; }
+    return;
+  }
+
+  // random speech bubble: a new line every ~6-11 s, never the same one twice in a row
+  if (speech && --speech.life <= 0) speech = null;
+  if (!speech && --nextSpeech <= 0) {
+    let i; do { i = Math.floor(Math.random() * SANTA_LINES.length); } while (i === lastLine);
+    lastLine = i;
+    speech = { lines: wrapText(SANTA_LINES[i], SPEECH_WRAP), life: SPEECH_TIME };
+    nextSpeech = SPEECH_TIME + 480 + Math.random() * 360; // next one in ~10-16 s
+  }
+
+  // speed ramps up slowly the further you go
+  dist += speed;
+  speed = lerp(1.0, 2.1, difficulty());
+
+  platforms.forEach(p => p.x -= speed);
+  gifts.forEach(g => g.x -= speed);
+  birds.forEach(b => {
+    b.x -= speed + lerp(0.3, 0.6, difficulty()); b.t++;
+    if (!b.seen && b.x < W) { b.seen = true; sfx.bird(); } // tweet as it flies on screen
+  });
+  birds = birds.filter(b => b.x > -12);
+  platforms = platforms.filter(p => p.x + p.w > -20);
+  gifts = gifts.filter(g => g.x > -10 && !g.got);
+  fillPlatforms();
+
+  const prevFeet = santa.y + 13;
+  santa.vy = Math.min(santa.vy + GRAV, 6);
+  santa.y += santa.vy;
+  const feet = santa.y + 13, left = santa.x + 3, right = santa.x + 24;
+
+  let onPlat = false;
+  for (const p of platforms) {
+    if (left >= p.x + p.w || right <= p.x) continue;
+    if (santa.vy >= 0 && prevFeet <= p.top + 1 && feet >= p.top) {
+      // landed on top
+      santa.y = p.top - 13; santa.vy = 0; onPlat = true;
+      if (santa.grounded <= 0) burst(santa.x + 12, p.top, 6, '#ffffff', 0.8, 15);
+      if (!p.landed) { p.landed = true; score++; }
+    } else if (feet > p.top + 2) {
+      die('CRASH!');                               // ran into the side of a chimney
+      return;
+    }
+  }
+  if (onPlat) { santa.grounded = COYOTE; santa.jumps = 0; }
+  else {
+    santa.grounded--;
+    if (santa.grounded <= 0 && santa.jumps === 0) santa.jumps = 1; // walked off: only the double jump left
+  }
+
+  if (santa.y > H) die('FELL!');
+
+  const box = { x: left, y: santa.y + 2, w: right - left, h: 10 };
+  for (const b of birds) {
+    const by = b.y + Math.sin(b.t / 12) * 2;
+    if (box.x < b.x + 9 && box.x + box.w > b.x + 1 && box.y < by + 7 && box.y + box.h > by + 2) {
+      burst(b.x + 5, by + 4, 10, '#7a4a24', 1.2, 30);
+      die('BIRDSTRIKE!');
+      return;
+    }
+  }
+  gifts.forEach(g => {
+    if (!g.got && box.x < g.x + 7 && box.x + box.w > g.x && box.y < g.y + 7 && box.y + box.h > g.y) {
+      g.got = true; score += 2;
+      sfx.present();
+      burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
+    }
+  });
+}
+
+// ---------- Drawing ----------
+function rect(c, x, y, w, h) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+
+function drawSky() {
+  const bands = ['#0b1026', '#111a3a', '#18244d', '#213160', '#2b3f73'];
+  const bh = Math.ceil(GROUND / bands.length);
+  bands.forEach((c, i) => rect(c, 0, i * bh, W, bh));
+  stars.forEach(s => {
+    if ((frame + s.t) % 60 < 50) rect('#fff7c2', s.x, s.y, 1, 1);
+  });
+  // moon
+  const MX = 111, MY = 29, MR = 9;
+  for (let dy = -MR; dy <= MR; dy++) for (let dx = -MR; dx <= MR; dx++) {
+    const d = dx * dx + dy * dy;
+    if (d <= MR * MR + MR) {
+      rect(d > (MR - 1) * (MR - 1) + MR - 1 && dx + dy > 0 ? '#e8d9a0' : '#fff3c4', MX + dx, MY + dy, 1, 1);
+    }
+  }
+  // craters
+  rect('#e8d9a0', MX - 4, MY - 3, 3, 3); rect('#e8d9a0', MX + 2, MY + 2, 2, 2); rect('#e8d9a0', MX + 3, MY - 5, 1, 1);
+  // far hills scroll slowly (parallax layer 1)
+  const hx = (scrollX + ox) * 0.2;
+  for (let x = 0; x < W; x++) {
+    const h = 14 + Math.sin((x + hx) / 14) * 5 + Math.sin((x + hx) / 5) * 1.5;
+    rect('#a9b8d0', x, GROUND - h, 1, h);
+  }
+  // near snow bank + trees scroll together at half speed (parallax layer 2)
+  const tx = (scrollX + ox) * 0.5;
+  const bankY = sx => GROUND - 6 - Math.sin((sx + tx) / 11) * 2 - Math.sin((sx + tx) / 23) * 2;
+  const span = W + 40;
+  trees.forEach((t, i) => {
+    const x = (((i * 23 - tx) % span) + span) % span - 20;
+    const base = bankY(x + t.width / 2);
+    const ty = Math.round(base - t.height + 3);
+    ctx.drawImage(t, Math.round(x), ty); // trunk sinks into the snow
+    if (LIT.includes(i)) t.lights.forEach((l, j) => {
+      if ((Math.floor(frame / 15) + j) % 3) rect(l.c, Math.round(x) + l.x, ty + l.y, 1, 1);
+    });
+  });
+  for (let x = 0; x < W; x++) {
+    const y = Math.round(bankY(x));
+    rect('#bfcbdd', x, y, 1, H - y);   // snow runs all the way to the bottom
+    rect('#d3dcea', x, y, 1, 1);
+  }
+  // soft drifts in the snowfield, scrolling with the trees
+  for (let i = 0; i < 6; i++) {
+    const x = (((i * 31 - tx) % span) + span) % span - 20;
+    rect('#aebcd2', x, GROUND + 8 + (i * 17) % 44, 10 + (i % 3) * 4, 1);
+  }
+}
+
+function drawRoof(p) {
+  const x = Math.round(p.x - ox), top = Math.round(p.top);
+  rect('#3b4a6b', x, top + 3, p.w, H - top);
+  for (let row = 0; top + 5 + row * 4 < H; row++) {
+    const y = top + 5 + row * 4;
+    rect('#2c3854', x, y, p.w, 1);
+    for (let bx = row % 2 ? 0 : 4; bx < p.w; bx += 8) rect('#2c3854', x + bx, y, 1, 4);
+  }
+  rect('#ffffff', x, top, p.w, 3);
+  for (let i = 3; i < p.w; i += 7) rect('#ffffff', x + i, top + 3, 2, 1 + (i % 3));
+}
+
+function drawChimney(p) {
+  const x = Math.round(p.x - ox), top = Math.round(p.top), w = p.w;
+  // brick stack (inset from the cap)
+  rect('#8c3b2c', x + 3, top + 8, w - 6, H - top);
+  for (let row = 0; top + 8 + row * 4 < H; row++) {
+    const y = top + 8 + row * 4;
+    rect('#5e241a', x + 3, y, w - 6, 1);
+    for (let bx = row % 2 ? 0 : 5; bx < w - 6; bx += 10) rect('#5e241a', x + 3 + bx, y, 1, 4);
+  }
+  rect('#5e241a', x + w - 4, top + 8, 1, H - top); // shaded edge
+  // cap with snow on top (the landing surface)
+  rect('#6e2c20', x, top + 2, w, 7);
+  rect('#2a2a2a', x + 5, top + 3, w - 10, 2);
+  rect('#ffffff', x, top, w, 3);
+  rect('#ffffff', x + 3, top - 1, 6, 1);
+  if (w > 26) rect('#ffffff', x + w - 9, top - 1, 4, 1);
+}
+
+// tiny 3x5 pixel font for digits & a few letters
+const FONT = {
+  '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111',
+  '4':'101101111001001','5':'111100111001111','6':'111100111101111','7':'111001010010010',
+  '8':'111101111101111','9':'111101111001111',
+  A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',
+  E:'111100111100111',F:'111100110100100',G:'011100101101011',H:'101101111101101',
+  I:'111010010010111',K:'101101110101101',L:'100100100100111',M:'101111111101101',
+  N:'110101101101101',O:'010101101101010',P:'110101110100100',R:'110101110101101',
+  S:'011100010001110',T:'111010010010010',U:'101101101101111',V:'101101101101010',
+  W:'101101111111101',Y:'101101010010010',' ':'000000000000000','!':'010010010000010',
+  ':':'000010000010000',J:'001001001101010','*':'101010101000000',"'":'010010000000000',',':'000000000010100','.':'000000000000010',
+  Q:'010101101110011',X:'101101010101101',Z:'111001010100111','+':'000010111010000'
+};
+function text(str, cx, y, scale = 1, color = '#fff', shadow = '#0b1026') {
+  str = String(str).toUpperCase();
+  const w = str.length * 4 * scale - scale;
+  const x0 = Math.round(cx - w / 2);
+  [[shadow, scale], [color, 0]].forEach(([c, off]) => {
+    ctx.fillStyle = c;
+    [...str].forEach((ch, i) => {
+      const g = FONT[ch] || FONT[' '];
+      for (let p = 0; p < 15; p++) if (g[p] === '1')
+        ctx.fillRect(x0 + i * 4 * scale + (p % 3) * scale + off, y + Math.floor(p / 3) * scale + off, scale, scale);
+    });
+  });
+}
+
+// Intro story, word-wrapped to fit the pixel font (4px per character)
+const STORY = "Oh crumbs! Santa was at the pub last night and got absolutely bladdered. " +
+  "On his way back, he dropped all the kids' presents. You'd better grab as many as you can " +
+  "or some poor little buggers will be getting nowt!";
+const STORY_LINES = (() => {
+  const max = Math.floor((W - 8) / 4), lines = [];
+  let line = '';
+  STORY.split(' ').forEach(word => {
+    if ((line + ' ' + word).trim().length > max) { lines.push(line); line = word; }
+    else line = (line + ' ' + word).trim();
+  });
+  lines.push(line);
+  return lines;
+})();
+
+// Smooth scrolling: the game logic runs at a fixed 60 steps/sec, but screens refresh at
+// 120Hz, 30Hz, etc. Between steps we nudge everything that scrolls by the fraction of a
+// step that has passed, so chimneys glide instead of stuttering 0/1/2 steps per frame.
+let ox = 0, birdFactor = 1;
+
+// Split a phrase into lines of at most `max` characters, breaking at spaces
+function wrapText(str, max) {
+  const lines = [];
+  let line = '';
+  str.split(' ').forEach(word => {
+    if ((line + ' ' + word).trim().length > max) { lines.push(line); line = word; }
+    else line = (line + ' ' + word).trim();
+  });
+  lines.push(line);
+  return lines;
+}
+
+// Pixel speech bubble above Santa's head, with a little tail pointing down at him
+function drawSpeech() {
+  const lines = speech.lines;
+  const tw = Math.max(...lines.map(l => l.length)) * 4 - 1;
+  const bw = tw + 4, bh = lines.length * 6 + 3;
+  const headX = Math.round(santa.x + 7);
+  // bubble sits up and behind Santa (to the left), keeping the way ahead clear
+  const bx = Math.max(1, headX + 4 - bw);
+  const by = Math.max(2, Math.round(santa.y) - bh - 5);
+  // pop in: small for the first few frames
+  if (SPEECH_TIME - speech.life < 3) { rect('#ffffff', headX - 2, by + bh - 3, 5, 3); return; }
+  rect('#0b1026', bx + 1, by, bw - 2, bh);           // outline (rounded corners)
+  rect('#0b1026', bx, by + 1, bw, bh - 2);
+  rect('#ffffff', bx + 1, by + 1, bw - 2, bh - 2);   // bubble
+  // tail
+  rect('#0b1026', headX - 1, by + bh - 1, 4, 2);
+  rect('#0b1026', headX - 1, by + bh + 1, 2, 2);
+  rect('#ffffff', headX, by + bh - 1, 2, 1);
+  rect('#ffffff', headX, by + bh, 1, 1);
+  lines.forEach((l, i) => text(l, bx + bw / 2, by + 2 + i * 6, 1, '#1b1b1b', '#ffffff'));
+}
+
+// Clickable areas on the title screen, rebuilt each time it is drawn
+let uiButtons = [];
+function drawCheckbox(x, y, on) {
+  rect('#ffffff', x, y, 7, 7);
+  rect('#0b1026', x + 1, y + 1, 5, 5);
+  if (on) [[1, 3], [2, 4], [3, 3], [4, 2], [5, 1]].forEach(([dx, dy]) => rect('#9be29b', x + dx, y + dy, 1, 1)); // tick
+}
+
+// ---------- Title logo: candy cane "CRIMBO" over a shaking "PANIC!" ----------
+// Big letters are the pixel font at 4x, except M which has its own hand-drawn
+// 12x20 shape with proper diagonal strokes (the 3x5 font's M is just a block).
+const LOGO_GLYPHS = {
+  M: [
+    '111......111',
+    '1111....1111',
+    '11111..11111',
+    '111111111111',
+    '111.1111.111',
+    '111..11..111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+    '111......111',
+  ],
+};
+function logoWord(str, x, y, s, dx, dy) {
+  const px = [];
+  [...str].forEach((ch, i) => {
+    const ox = x + i * 4 * s + (dx ? dx(i) : 0), oy = y + (dy ? dy(i) : 0);
+    const big = s === 4 && LOGO_GLYPHS[ch];
+    if (big) {
+      big.forEach((row, ly) => [...row].forEach((c, lx) => { if (c === '1') px.push({ x: ox + lx, y: oy + ly, ly }); }));
+      return;
+    }
+    const g = FONT[ch];
+    for (let p = 0; p < 15; p++) if (g[p] === '1') {
+      const cx = p % 3, cy = Math.floor(p / 3);
+      for (let a = 0; a < s; a++) for (let b = 0; b < s; b++) px.push({ x: ox + cx * s + a, y: oy + cy * s + b, ly: cy * s + b });
+    }
+  });
+  return px;
+}
+function logoOutline(px, col) {
+  ctx.fillStyle = col;
+  px.forEach(p => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (a || b) ctx.fillRect(p.x + a, p.y + b, 1, 1); });
+}
+const LOGO_H = 48; // height the logo takes up in the title panel
+function drawLogo(y0) {
+  const oy = y0 - 8; // logo was designed with the snow caps starting at y = 8
+  // CRIMBO: red and white candy-cane stripes
+  const top = logoWord('CRIMBO', 26, oy + 10, 4);
+  logoOutline(top, '#3a0a12');
+  top.forEach(p => rect(((p.x + p.y) % 6 < 3) ? '#d62839' : '#ffffff', p.x, p.y, 1, 1));
+  // snow settled on top of every letter, with the odd drip
+  const tops = {};
+  top.forEach(p => { if (tops[p.x] === undefined || p.y < tops[p.x]) tops[p.x] = p.y; });
+  Object.entries(tops).forEach(([x, y]) => {
+    x = +x;
+    rect('#ffffff', x, y - 2, 1, 2); rect('#dfe8f5', x, y, 1, 1);
+    if ((x * 7) % 11 === 0) rect('#ffffff', x, y + 1, 1, 2);
+  });
+  // holly sprig
+  rect('#1b6b2c', 14, oy + 8, 4, 3); rect('#2e9e44', 15, oy + 7, 2, 5);
+  rect('#1b6b2c', 19, oy + 10, 3, 4); rect('#2e9e44', 20, oy + 9, 1, 6);
+  rect('#e23b3b', 17, oy + 11, 2, 2); rect('#ff4d4d', 19, oy + 13, 2, 2); rect('#e23b3b', 16, oy + 13, 2, 2);
+  // PANIC!: gold, nervously shaking
+  const sh = Math.floor(frame / 4);
+  const bot = logoWord('PANIC!', 38, oy + 38, 3,
+    i => ((sh * 7 + i * 13) % 5 === 0 ? 1 : ((sh * 3 + i * 5) % 7 === 0 ? -1 : 0)),
+    i => ((sh + i) % 6 === 0 ? -1 : 0));
+  logoOutline(bot, '#3a0a12');
+  bot.forEach(p => rect(p.ly < 5 ? '#ffe680' : p.ly < 10 ? '#f7c843' : '#ff9a3c', p.x, p.y, 1, 1));
+  // twinkles
+  [[126, 12], [10, 40], [122, 46], [130, 30]].forEach(([x, y], k) => {
+    if ((frame + k * 17) % 50 < 25) { rect('#ffffff', x, oy + y - 1, 1, 3); rect('#ffffff', x - 1, oy + y, 3, 1); }
+  });
+}
+
+// Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, OY);
+  rect('#0b1026', 0, -OY, W, OY);
+  drawScene();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+function drawScene() {
+  drawSky();
+  platforms.forEach(p => p.kind === 'roof' ? drawRoof(p) : drawChimney(p));
+  smoke.forEach(p => {
+    const fade = 1 - p.age / p.max, r = Math.round(p.r);
+    ctx.fillStyle = `rgba(${200 - p.age},${205 - p.age},${215 - p.age},${(0.75 * fade).toFixed(2)})`;
+    const cx = Math.round(p.x - ox), cy = Math.round(p.y);
+    ctx.fillRect(cx - r, cy - r + 1, r * 2 + 1, r * 2 - 1); // chunky pixel blob
+    ctx.fillRect(cx - r + 1, cy - r, r * 2 - 1, r * 2 + 1);
+  });
+  birds.forEach(b => ctx.drawImage(Math.floor(b.t / 6) % 2 ? birdA : birdB, Math.round(b.x - ox * birdFactor), Math.round(b.y + Math.sin(b.t / 12) * 2)));
+  gifts.forEach(g => ctx.drawImage(presents[g.look], Math.round(g.x - ox), Math.round(g.y + Math.sin((frame + g.x) / 8))));
+
+  // Santa: reindeer trots on the ground, sleigh tilts in the air
+  const onGround = santa.grounded === COYOTE;
+  const spr = Math.floor(frame / (onGround && state === 'play' ? 5 : 10)) % 2 ? sleighA : sleighB;
+  ctx.save();
+  ctx.translate(Math.round(santa.x + 13), Math.round(santa.y + 6));
+  const ang = state === 'over' ? 0.6 : onGround ? 0 : Math.max(-0.35, Math.min(0.5, santa.vy * 0.08));
+  ctx.rotate(Math.round(ang * 8) / 8);
+  ctx.drawImage(spr, -13, -6);
+  ctx.restore();
+
+  particles.forEach(p => rect(p.c, p.x - ox, p.y, 1, 1));
+  if (speech && state === 'play') drawSpeech();
+  flakes.forEach(f => rect('#ffffff', f.x, f.y, 1, 1));
+
+  if (state === 'play') text(score, W / 2, 12, 2);
+  if (state === 'ready') {
+    // panel sized to its content and centred in the sky above Santa's rooftop
+    const lineH = 7, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 16 + 12 + (best ? 8 : 0) + 6 + 5 + 6;
+    const py = Math.round((santa.y - 4 - panelH - OY) / 2), px = 6, pw = W - 12;
+    rect('rgba(11,16,38,0.94)', px, py, pw, panelH);
+    rect('#f7c843', px, py, pw, 1); rect('#f7c843', px, py + panelH - 1, pw, 1);
+    rect('#f7c843', px, py, 1, panelH); rect('#f7c843', px + pw - 1, py, 1, panelH);
+    let y = py + 6;
+    drawLogo(y); y += LOGO_H + 4;
+    STORY_LINES.forEach(l => { text(l, W / 2, y, 1); y += lineH; });
+    y += 5;
+    text('TAP TO JUMP', W / 2, y, 1, '#bfe8ff'); y += 8;
+    text('TAP AGAIN TO DOUBLE JUMP', W / 2, y, 1, '#bfe8ff'); y += 10;
+    // sound settings: two clickable tick boxes (also M and F keys)
+    uiButtons = [];
+    const opts = [['MUSIC', !musicMuted, toggleMusic], ['SOUND FX', !fxMuted, toggleFx]];
+    const widths = opts.map(([label]) => 7 + 3 + label.length * 4 - 1);
+    let ux = Math.round(W / 2 - (widths[0] + 12 + widths[1]) / 2);
+    opts.forEach(([label, on, action], i) => {
+      drawCheckbox(ux, y, on);
+      text(label, ux + 10 + (label.length * 4 - 1) / 2, y + 1, 1, on ? '#ffffff' : '#7f8aa8');
+      uiButtons.push({ x: ux - 2, y: y - 2, w: widths[i] + 4, h: 11, action });
+      ux += widths[i] + 12;
+    });
+    y += 10;
+    if (best) { text('BEST ' + best, W / 2, y, 1, '#ffe680'); y += 8; }
+    if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y + 6, 1, '#f7c843');
+  }
+  if (state === 'over') {
+    rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);
+    rect('#f7c843', 22, 70, 100, 1); rect('#f7c843', 22, 149, 100, 1);
+    text(deathMsg, W / 2, 80, 2, '#d62839', '#fff');
+    text('SCORE ' + score, W / 2, 104, 1);
+    text('BEST ' + best, W / 2, 116, 1, '#ffe680');
+    if (frame > 30 && Math.floor(frame / 20) % 2) text('TAP TO RETRY', W / 2, 134, 1);
+  }
+}
+
+// Fixed 60 updates/sec so speed is the same on 60Hz and 120Hz screens
+const STEP = 1000 / 60;
+let last = performance.now(), acc = 0;
+function loop(now) {
+  acc = Math.min(acc + (now - last), 200); last = now;
+  while (acc >= STEP) { update(); acc -= STEP; }
+  const alpha = acc / STEP;
+  ox = state === 'play' ? speed * alpha : 0;
+  birdFactor = state === 'play' ? (speed + lerp(0.3, 0.6, difficulty())) / speed : 1;
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
