@@ -247,7 +247,8 @@ const SPEECH_WRAP = 7;                     // max characters per line, keeps the
 let speech = null, nextSpeech = 0, lastLine = -1;
 let state, santa, platforms, gifts, score, best, frame, flakes, stars, particles, deathMsg, dist;
 
-try { best = +localStorage.getItem('sleighBest') || 0; } catch { best = 0; }
+// best = most presents saved in one run (a new save slot, since the old best counted chimneys)
+try { best = +localStorage.getItem('crimboBestPresents') || 0; } catch { best = 0; }
 
 stars = Array.from({ length: 40 }, () => ({
   x: Math.random() * W, y: Math.random() * (GROUND - 40) - 40, t: Math.random() * 100
@@ -407,6 +408,27 @@ const sfx = {
                    tone({ type: 'sine', f0: 2600, f1: 3600, dur: 0.06, vol: 0.08, delay: d });
                    tone({ type: 'sine', f0: 3400, f1: 2400, dur: 0.06, vol: 0.08, delay: d + 0.06 });
                  }); },
+  death(msg) {
+    let jingleAt = 0.6;
+    if (msg === 'CRASH!') {          // thud and clatter into a chimney
+      noise({ dur: 0.25, vol: 0.5, f: 300 });
+      tone({ type: 'sine', f0: 120, f1: 40, dur: 0.25, vol: 0.35 });
+      tone({ f0: 400, f1: 150, dur: 0.15, vol: 0.06, delay: 0.05 });
+    } else if (msg === 'BIRDSTRIKE!') { // angry squawk, a puff of feathers and a thump
+      tone({ type: 'sawtooth', f0: 900, f1: 600, dur: 0.12, vol: 0.07 });
+      tone({ type: 'sawtooth', f0: 700, f1: 1100, dur: 0.1, vol: 0.07, delay: 0.12 });
+      noise({ dur: 0.3, vol: 0.15, f: 4000, type: 'highpass', delay: 0.02 });
+      tone({ type: 'sine', f0: 110, f1: 45, dur: 0.2, vol: 0.3, delay: 0.05 });
+    } else {                         // falling whistle, then a thump in the snow below
+      tone({ type: 'sine', f0: 1200, f1: 200, dur: 0.8, vol: 0.07 });
+      noise({ dur: 0.3, vol: 0.4, f: 250, delay: 0.8 });
+      tone({ type: 'sine', f0: 90, f1: 40, dur: 0.25, vol: 0.3, delay: 0.8 });
+      jingleAt = 1.2;
+    }
+    // little "game over" jingle: four notes sliding down
+    [[523, 0], [466, 0.18], [415, 0.36]].forEach(([f, d]) => tone({ f0: f, dur: 0.16, vol: 0.05, delay: jingleAt + d }));
+    tone({ f0: 349, f1: 330, dur: 0.6, vol: 0.05, delay: jingleAt + 0.54 });
+  },
 };
 
 function playIntro() {
@@ -469,10 +491,13 @@ document.addEventListener('visibilitychange', () => {
 function die(msg) {
   if (state !== 'play') return;
   state = 'over'; frame = 0; deathMsg = msg; speech = null;
-  if (score > best) { best = score; try { localStorage.setItem('sleighBest', best); } catch {} }
+  if (score > best) { best = score; try { localStorage.setItem('crimboBestPresents', best); } catch {} }
   burst(santa.x + 12, santa.y + 6, 20, '#d62839', 1.5, 40);
   burst(santa.x + 12, santa.y + 6, 12, '#ffffff', 1.5, 40);
   if (msg === 'CRASH!') santa.vy = -2;
+  sfx.death(msg);
+  // a short buzz on phones that support it (Android; iPhones don't allow it)
+  if (!fxMuted && navigator.vibrate) navigator.vibrate(msg === 'FELL!' ? [40, 60, 120] : [120, 50, 60]);
 }
 
 // ---------- Update ----------
@@ -561,7 +586,7 @@ function update() {
       // landed on top
       santa.y = p.top - 13; santa.vy = 0; onPlat = true;
       if (santa.grounded <= 0) burst(santa.x + 12, p.top, 6, '#ffffff', 0.8, 15);
-      if (!p.landed) { p.landed = true; score++; }
+      p.landed = true;
     } else if (feet > p.top + 2) {
       die('CRASH!');                               // ran into the side of a chimney
       return;
@@ -586,7 +611,7 @@ function update() {
   }
   gifts.forEach(g => {
     if (!g.got && box.x < g.x + 7 && box.x + box.w > g.x && box.y < g.y + 7 && box.y + box.h > g.y) {
-      g.got = true; score += 2;
+      g.got = true; score++;   // score = presents saved
       sfx.present();
       burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
     }
@@ -917,7 +942,7 @@ function drawScene() {
   if (speech && state === 'play') drawSpeech();
   flakes.forEach(f => rect('#ffffff', f.x, f.y, 1, 1));
 
-  if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // below the notch
+  if (state === 'play') text('PRESENTS SAVED: ' + score, W / 2, Math.max(10, Math.ceil(SAFE_TOP) + 4 - OY), 1, '#ffffff'); // below the notch
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
     const lineH = 6, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 17 + 29 + (best ? 14 : 0) + 11;
@@ -952,7 +977,7 @@ function drawScene() {
     rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);
     rect('#f7c843', 22, 70, 100, 1); rect('#f7c843', 22, 149, 100, 1);
     text(deathMsg, W / 2, 80, 2, '#d62839', '#fff');
-    text('SCORE ' + score, W / 2, 104, 1);
+    text('PRESENTS SAVED ' + score, W / 2, 104, 1);
     text('BEST ' + best, W / 2, 116, 1, '#ffe680');
     if (frame > 30 && Math.floor(frame / 20) % 2) text('TAP TO RETRY', W / 2, 134, 1);
   }
