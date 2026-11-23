@@ -444,7 +444,9 @@
         const S = SCENES[scene], oy = Math.floor((H - 256) / 2);
         R('#05070f', 0, 0, W, H);
         ctx.save(); ctx.translate(0, oy);
-        if (S.caption) text(S.caption.slice(0, Math.floor(t / 3)), 8, 18, '#f7c843');
+        // text is centred on its finished width, so it types out left to right without sliding
+        const startX = str => W / 2 - (str.length * 4 - 1) / 2;
+        if (S.caption) text(S.caption.slice(0, Math.floor(t / 3)), startX(S.caption), 18, '#f7c843');
         // picture
         R('#b8862b', 7, 29, 130, 98); R('#05070f', 8, 30, 128, 96);
         ctx.save(); ctx.beginPath(); ctx.rect(8, 30, 128, 96); ctx.clip(); ctx.translate(8, 30);
@@ -454,12 +456,12 @@
         R('#3a4a7a', 6, 136, 132, 62); R('#0b1026', 7, 137, 130, 60);
         const line = S.lines.filter(l => t >= l.at).pop();
         if (line) {
-          text(line.who, 11, 141, WHO_COLS[line.who] || '#fff');
+          text(line.who, startX(line.who), 141, WHO_COLS[line.who] || '#fff');
           const shown = Math.floor((t - line.at) / 2);
           let used = 0;
           wrap(line.text, 31).forEach((l, i) => {
             const part = l.slice(0, Math.max(0, shown - used)); used += l.length + 1;
-            text(part, 11, 151 + i * 8, '#ffffff');
+            text(part, startX(l), 151 + i * 8, '#ffffff');
           });
         }
         // fade in and out between scenes
