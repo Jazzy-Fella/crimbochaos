@@ -305,10 +305,21 @@ try { musicMuted = localStorage.getItem('crimboMusicOff') === '1'; fxMuted = loc
 function saveSound() {
   try { localStorage.setItem('crimboMusicOff', musicMuted ? '1' : '0'); localStorage.setItem('crimboFxOff', fxMuted ? '1' : '0'); } catch {}
 }
+// The music only plays once gameplay has started (not on the start screen, intro or
+// the first title screen). musicOn = gameplay has started it.
+let musicOn = false, musicPrimed = false;
+function startMusic() {
+  musicOn = true;
+  if (music && !musicMuted) music.play().catch(() => {});
+}
+function stopMusic() {
+  musicOn = false;
+  if (music) music.pause();
+}
 function toggleMusic() {
   musicMuted = !musicMuted; saveSound();
   if (!music) return;
-  if (musicMuted) music.pause(); else music.play().catch(() => {});
+  if (musicMuted) music.pause(); else if (musicOn) music.play().catch(() => {});
 }
 function toggleFx() { fxMuted = !fxMuted; saveSound(); }
 
@@ -318,7 +329,13 @@ function initAudio() {
     music.loop = true;
     music.volume = 0.25;
   }
-  if (music && !musicMuted && music.paused) music.play().catch(() => {});
+  if (!musicPrimed) {
+    // Phones only let a track play later if it was first started during a tap, so start
+    // it silently now and pause it straight away, ready for when gameplay begins.
+    musicPrimed = true;
+    music.muted = true;
+    music.play().then(() => { if (!musicOn) music.pause(); music.muted = false; }).catch(() => { music.muted = false; musicPrimed = false; });
+  } else if (musicOn && !musicMuted && music.paused) music.play().catch(() => {});
   if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
   if (audio.state === 'suspended') audio.resume();
 }
@@ -365,11 +382,17 @@ const sfx = {
                  }); },
 };
 
+function playIntro() {
+  stopMusic();
+  intro = CrimboIntro.create(ctx, { tone, noise });
+  state = 'intro';
+}
+
 function jump() {
   initAudio();
-  if (state === 'splash') { intro = CrimboIntro.create(ctx, { tone, noise }); state = 'intro'; return; }
+  if (state === 'splash') { playIntro(); return; }
   if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
-  if (state === 'ready') { state = 'play'; return; }
+  if (state === 'ready') { state = 'play'; startMusic(); return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
   if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
     santa.vy = JUMP; santa.jumps = 1; santa.grounded = 0;
@@ -412,7 +435,7 @@ document.addEventListener('visibilitychange', () => {
     if (audio) audio.suspend();
   } else {
     if (audio) audio.resume();
-    if (music && !musicMuted) music.play().catch(() => {});
+    if (music && musicOn && !musicMuted) music.play().catch(() => {});
   }
 });
 
@@ -828,7 +851,7 @@ function drawScene() {
   if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // below the notch
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
-    const lineH = 7, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 16 + 12 + (best ? 8 : 0) + 6 + 5 + 6;
+    const lineH = 7, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 16 + 12 + 15 + (best ? 8 : 0) + 6 + 5 + 6;
     const py = Math.round((santa.y - 4 - panelH - OY + SAFE_TOP) / 2), px = 6, pw = W - 12;
     rect('rgba(11,16,38,0.94)', px, py, pw, panelH);
     rect('#f7c843', px, py, pw, 1); rect('#f7c843', px, py + panelH - 1, pw, 1);
@@ -850,7 +873,13 @@ function drawScene() {
       uiButtons.push({ x: ux - 2, y: y - 2, w: widths[i] + 4, h: 11, action });
       ux += widths[i] + 12;
     });
-    y += 10;
+    y += 11;
+    // "Play intro" button to watch the intro movie again
+    const label = 'PLAY INTRO', bw = label.length * 4 - 1 + 10, bx = Math.round(W / 2 - bw / 2);
+    rect('#f7c843', bx, y, bw, 11); rect('#3a2a10', bx + 1, y + 1, bw - 2, 9);
+    text(label, W / 2, y + 3, 1, '#ffe680');
+    uiButtons.push({ x: bx - 2, y: y - 2, w: bw + 4, h: 15, action: playIntro });
+    y += 15;
     if (best) { text('BEST ' + best, W / 2, y, 1, '#ffe680'); y += 8; }
     if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y + 6, 1, '#f7c843');
   }
