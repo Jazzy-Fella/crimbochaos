@@ -44,6 +44,7 @@
 </head>
 <body>
 <canvas id="c" width="144" height="256"></canvas>
+<script src="intro.js"></script>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -277,6 +278,10 @@ function fillPlatforms() {
   }
 }
 reset();
+// The game opens on a "tap to start" screen (that first tap is what lets phones play
+// sound), then the intro movie, then the title screen. Tapping during the intro skips it.
+let intro = null;
+if (window.CrimboIntro) state = 'splash';
 
 function burst(x, y, n, c, spd = 1, life = 20) {
   for (let i = 0; i < n; i++) particles.push({
@@ -342,6 +347,8 @@ const sfx = {
 
 function jump() {
   initAudio();
+  if (state === 'splash') { intro = CrimboIntro.create(ctx); state = 'intro'; return; }
+  if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
   if (state === 'ready') { state = 'play'; return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
   if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
@@ -401,6 +408,8 @@ function die(msg) {
 // ---------- Update ----------
 function update() {
   frame++;
+  if (state === 'splash') return;
+  if (state === 'intro') { intro.update(); if (intro.done) { state = 'ready'; frame = 0; } return; }
   const moving = state === 'play' ? speed : 0; // scenery stays still until Santa sets off
   flakes.forEach(f => {
     f.y += f.s; f.x -= f.s * 0.2 + moving * 0.6;
@@ -749,7 +758,20 @@ function drawLogo(y0) {
 }
 
 // Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it
+let pageBg = '';
 function draw() {
+  // the page around the game matches the darker intro screens, then the night sky
+  const bg = state === 'intro' || state === 'splash' ? '#05070f' : '#0b1026';
+  if (bg !== pageBg) { document.documentElement.style.background = document.body.style.background = pageBg = bg; }
+  if (state === 'intro') { ctx.setTransform(1, 0, 0, 1, 0, 0); intro.draw(W, H, 'TAP TO SKIP'); return; }
+  if (state === 'splash') {
+    ctx.setTransform(1, 0, 0, 1, 0, OY);
+    rect('#05070f', 0, -OY, W, H);
+    drawLogo(90);
+    if ((frame >> 5) % 2) text('TAP TO START', W / 2, 160, 1, '#f7c843');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return;
+  }
   ctx.setTransform(1, 0, 0, 1, 0, OY);
   rect('#0b1026', 0, -OY, W, OY);
   drawScene();

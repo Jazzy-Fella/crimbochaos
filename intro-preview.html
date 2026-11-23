@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Crimbo Panic intro preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070f; overflow: hidden; touch-action: none; user-select: none; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; height: min(100vh, 177.78vw); aspect-ratio: 9 / 16; cursor: pointer; }
+</style>
+</head>
+<body>
+<!-- Preview of the intro movie on its own. Tap to jump to the next scene; it loops. -->
+<canvas id="c" width="144" height="256"></canvas>
+<script src="intro.js"></script>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+let intro = CrimboIntro.create(ctx), wait = 0;
+addEventListener('pointerdown', () => intro.done ? (intro = CrimboIntro.create(ctx)) : intro.next());
+const STEP = 1000 / 60; let last = performance.now(), acc = 0;
+(function loop(now) {
+  acc = Math.min(acc + (now - last), 200); last = now;
+  while (acc >= STEP) {
+    acc -= STEP;
+    if (intro.done) { if (++wait > 90) { intro = CrimboIntro.create(ctx); wait = 0; } }
+    else intro.update();
+  }
+  if (intro.done) { ctx.fillStyle = '#05070f'; ctx.fillRect(0, 0, 144, 256); }
+  else intro.draw(144, 256, 'TAP: NEXT SCENE');
+  requestAnimationFrame(loop);
+})(performance.now());
+</script>
+</body>
+</html>
