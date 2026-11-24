@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.9'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.0'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -331,7 +331,7 @@ function reset() {
   state = 'ready';
   // start on a wide snowy rooftop
   platforms = [{ x: -10, w: 110, top: 200, kind: 'roof', landed: true }];
-  santa = { x: SANTA_X, y: 200 - 13, vy: 0, grounded: COYOTE, jumps: 0 };
+  santa = { x: SANTA_X, y: 200 - 13, vy: 0, grounded: COYOTE, jumps: 0, onPlat: true, buffer: 0 };
   gifts = []; particles = []; smoke = []; birds = [];
   playFrames = 0; blizzard = null; blizzardCount = 0;
   nextBlizzard = BLIZZARD_START + Math.random() * 300;
@@ -581,16 +581,22 @@ function jump() {
   if (state === 'over') { if (frame > 30) reset(); return; }
   if (state === 'paused') { resumeGame(); return; }
   if (rocket) return;                             // rocket mode: holding steers instead
-  if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
-    santa.vy = JUMP; santa.jumps = 1; santa.grounded = 0;
-    burst(santa.x + 6, santa.y + 13, 5, '#ffffff', 0.6);
-    sfx.jump();
-  } else if (santa.jumps < 2) {                   // magic double jump
-    santa.vy = JUMP2; santa.jumps++;
+  if (santa.grounded > 0) groundJump();            // normal jump (with a little coyote time)
+  else if (santa.jumps < 2) {                     // magic double jump
+    santa.vy = JUMP2 * jumpScale(); santa.jumps++;
     burst(santa.x + 12, santa.y + 12, 12, '#ffe680', 1.2, 24);
     sfx.doubleJump();
-  }
+  } else santa.buffer = 9;                        // tapped a touch early: jump the moment he lands
 }
+function groundJump() {
+  santa.vy = JUMP * jumpScale(); santa.jumps = 1; santa.grounded = 0; santa.buffer = 0;
+  burst(santa.x + 6, santa.y + 13, 5, '#ffffff', 0.6);
+  sfx.jump();
+}
+// As the game speeds up, jumps get snappier (quicker, same height) so they keep pace:
+// at top speed a jump takes ~25 frames instead of 36. Gravity scales with k squared and
+// jump strength with k, which keeps the height the same and shortens the time in the air.
+const jumpScale = () => Math.sqrt(speed);
 
 addEventListener('keydown', e => {
   if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
@@ -721,7 +727,7 @@ function update() {
   speed = lerp(1.0, 2.1, difficulty());
   if (rocket) {                      // ease up to 1.8x, and back down as the rockets die
     rocket.t++;
-    boost = 1 + 0.8 * Math.min(1, rocket.t / 20, (ROCKET_TIME - rocket.t) / 30);
+    boost = 1 + 0.8 * Math.max(0, Math.min(1, rocket.t / 20, (ROCKET_TIME - rocket.t) / 30));
   } else boost = 1;
   move = speed * boost;
 
@@ -739,7 +745,8 @@ function update() {
   if (rocket) { rocketStep(); return; }
 
   const prevFeet = santa.y + 13;
-  santa.vy = Math.min(santa.vy + GRAV, 6);
+  const k = jumpScale();
+  santa.vy = Math.min(santa.vy + GRAV * k * k, 6 * k);
   santa.y += santa.vy;
   const feet = santa.y + 13, left = santa.x + 3, right = santa.x + 24;
 
@@ -757,7 +764,10 @@ function update() {
       return;
     }
   }
-  if (onPlat) { santa.grounded = COYOTE; santa.jumps = 0; }
+  santa.onPlat = onPlat;
+  // a little longer to jump after running off an edge as the game speeds up (6 to 9 frames)
+  if (onPlat) { santa.grounded = Math.round(COYOTE * k); santa.jumps = 0; }
+  if (santa.buffer > 0 && --santa.buffer > 0 && onPlat) groundJump();   // early tap, now landed
   else {
     // walked off an edge: only the double jump left (checked once, as coyote time runs out)
     if (--santa.grounded === 0 && santa.jumps === 0) santa.jumps = 1;
@@ -817,10 +827,19 @@ function startRocket() {
 // One frame of rocket flight: hold to rise, let go to sink, invincible
 function rocketStep() {
   const ending = rocket.t > ROCKET_TIME - 60;
-  const firing = holding && !(ending && (rocket.t >> 2) % 3 === 0);   // sputters near the end
-  santa.vy = Math.max(-3, Math.min(3, santa.vy + (firing ? -0.42 : 0.28)));
+  // In the last second the rockets take over: they glide Santa down to just above the next
+  // safe chimney (not burning or icy) and only cut out once he's over it, so he always lands.
+  // (not over the last few pixels of a chimney, so there's room to land and then jump)
+  const target = ending ? platforms.find(p => !p.fire && !p.ice && p.x + p.w - 9 > santa.x + 12) : null;
+  if (target) {
+    const hoverY = target.top - 16;
+    santa.vy = Math.max(-5, Math.min(5, (hoverY - santa.y) * 0.3));   // quick enough to catch fast chimneys
+  } else {
+    const firing = holding && !(ending && (rocket.t >> 2) % 3 === 0);   // sputters near the end
+    santa.vy = Math.max(-3, Math.min(3, santa.vy + (firing ? -0.42 : 0.28)));
+  }
   santa.y += santa.vy;
-  const top = Math.ceil(SAFE_TOP) - OY + 4, bottom = 190;
+  const top = Math.ceil(SAFE_TOP) - OY + 4, bottom = target ? 220 : 190;   // landing: can go lower
   if (santa.y < top) { santa.y = top; santa.vy = 0; }
   if (santa.y > bottom) { santa.y = bottom; santa.vy = 0; }
   // exhaust: flames and sparkles out of the back
@@ -844,9 +863,14 @@ function rocketStep() {
       g.got = true; score++; sfx.present(); burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
     }
   });
-  if (rocket.t >= ROCKET_TIME) {      // rockets cut out: a little hop and two air jumps
+  // time's up and he's over a safe chimney: cut out (the rockets keep going until he is)
+  const centre = santa.x + 12;
+  const over = target && centre > target.x + 2 && centre < target.x + target.w - 9 && Math.abs(santa.y - (target.top - 16)) < 8;
+  if ((rocket.t >= ROCKET_TIME && over) || rocket.t >= ROCKET_TIME + 600) {   // (the 10 s backstop should never be needed)
     rocket = null; boost = 1;
-    santa.vy = -2.5; santa.jumps = 0; santa.grounded = -1;
+    if (over) { santa.y = target.top - 13.5; santa.vy = 0.3; }   // drops straight onto it
+    else santa.vy = -2.5;
+    santa.jumps = 0; santa.grounded = -1;                        // two air jumps, just in case
     sfx.rocketEnd();
   }
 }
@@ -898,12 +922,14 @@ function drawSky() {
   const hx = Math.round((scrollX + ox) * 0.2) % LOOP;
   ctx.drawImage(hillsImg, hx, 0, W, 22, 0, GROUND - 22, W, 22);
   // near snow bank + trees scroll together at half speed (parallax layer 2)
-  const tx = (scrollX + ox) * 0.5, txi = Math.round(tx) % LOOP;
+  // whole pixels for everything in this layer, so the trees and drifts move in lockstep
+  // with the pre-drawn snow bank (fractions made them judder against it)
+  const txr = Math.round((scrollX + ox) * 0.5), txi = txr % LOOP;
   const bankY = sx => bankAt(sx + txi);
   const span = W + 40;
   trees.forEach((t, i) => {
-    const x = (((i * 23 - tx) % span) + span) % span - 20;
-    const base = bankY(x + t.width / 2);
+    const x = (((i * 23 - txr) % span) + span) % span - 20;
+    const base = bankY(x + Math.floor(t.width / 2));
     const ty = Math.round(base - t.height + 3);
     ctx.drawImage(t, Math.round(x), ty); // trunk sinks into the snow
     if (LIT.includes(i)) t.lights.forEach((l, j) => {
@@ -914,7 +940,7 @@ function drawSky() {
   rect('#bfcbdd', 0, GROUND + 2, W, H);   // snow runs all the way to the bottom
   // soft drifts in the snowfield, scrolling with the trees
   for (let i = 0; i < 6; i++) {
-    const x = (((i * 31 - tx) % span) + span) % span - 20;
+    const x = (((i * 31 - txr) % span) + span) % span - 20;
     rect('#aebcd2', x, GROUND + 8 + (i * 17) % 44, 10 + (i % 3) * 4, 1);
   }
 }
@@ -1161,28 +1187,6 @@ function drawLogoTop(oy) {   // oy = y0 - 8; the logo was designed with the snow
 }
 
 // Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it
-// Hidden diagnostics (tap the version number on the title screen): what the phone
-// reports about its screen, to track down layout problems on real devices
-let debugOn = false;
-function drawDebug() {
-  const r = cv.getBoundingClientRect(), cs = getComputedStyle(document.documentElement);
-  const lines = [
-    'VERSION ' + BUILD,
-    'HOME APP ' + (isHomeScreenApp() ? 'YES' : 'NO') + '  IOS ' + (IS_IOS ? 'YES' : 'NO'),
-    'STANDALONE ' + String(navigator.standalone).toUpperCase(),
-    'WINDOW ' + innerWidth + 'X' + innerHeight,
-    'SCREEN ' + screen.width + 'X' + screen.height,
-    'PAGE ' + document.body.clientWidth + 'X' + document.body.clientHeight,
-    'GAME TOP ' + Math.round(r.top) + ' BOTTOM ' + Math.round(r.bottom),
-    'SAFE TOP ' + parseFloat(cs.getPropertyValue('--sat')) + ' BOTTOM ' + parseFloat(cs.getPropertyValue('--sab')),
-    'GAME PIXELS ' + W + 'X' + H,
-    'TAP VERSION TO CLOSE',
-  ];
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  rect('rgba(5,7,15,0.92)', 4, 40, W - 8, lines.length * 8 + 8);
-  lines.forEach((l, i) => text(l, W / 2, 45 + i * 8, 1, i === lines.length - 1 ? '#f7c843' : '#ffffff'));
-}
-
 let pageBg = '';
 function draw() {
   // the page around the game matches the darker intro screens, then the night sky
@@ -1204,7 +1208,6 @@ function draw() {
   rect('#0b1026', -4, -OY - 4, W + 8, OY + 4);
   drawScene();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (debugOn && state === 'ready') drawDebug();
 }
 
 // White haze that thickens towards the right, plus thick snow driving sideways
@@ -1244,7 +1247,7 @@ function drawScene() {
   });
 
   // Santa: reindeer trots on the ground, sleigh tilts in the air
-  const onGround = santa.grounded === COYOTE;
+  const onGround = santa.onPlat && !rocket;
   const flip = Math.floor(frame / (onGround && state === 'play' ? 5 : 10)) % 2;
   const spr = hat ? (flip ? sleighBaldA : sleighBaldB) : (flip ? sleighA : sleighB);
   ctx.save();
@@ -1320,10 +1323,9 @@ function drawScene() {
       y += 14;
     }
     if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
-    // version number in the bottom corner; tap it to show the screen diagnostics
-    const vy = H - OY - 9 - Math.ceil(SAFE_BOTTOM), label = 'V' + BUILD; // above the home bar
+    // version number in the bottom corner (above the home bar), to check for updates
+    const vy = H - OY - 9 - Math.ceil(SAFE_BOTTOM), label = 'V' + BUILD;
     text(label, W - 4 - (label.length * 4 - 1) / 2, vy, 1, '#9aa6c4');
-    uiButtons.push({ x: W - 34, y: vy - 8, w: 34, h: 20, action: () => { debugOn = !debugOn; } });
   }
   if (state === 'over') {
     rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);
