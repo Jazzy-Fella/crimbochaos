@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.7'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '1.8'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -276,6 +276,9 @@ let scrollX = 0, smoke = [], speed = 1.0;
 // him. In the last second the rockets sputter; when they cut out he gets a hop and two
 // air jumps so he can always land safely.
 const ROCKET_TIME = 300;                   // frames (5 s)
+// "HOLD TO FLY!" only shows for the very first super present on this device
+let rocketHintSeen = false;
+try { rocketHintSeen = localStorage.getItem('crimboRocketHintSeen') === '1'; } catch {}
 let rocket = null, holding = false, boost = 1, move = 1;
 // Pause: tap the pause button (or P / Esc), or switch away from the game. Tapping again
 // counts down 3-2-1 before play carries on, so you're not caught off guard.
@@ -761,7 +764,8 @@ function update() {
 }
 
 function startRocket() {
-  rocket = { t: 0 };
+  rocket = { t: 0, hint: !rocketHintSeen };
+  if (!rocketHintSeen) { rocketHintSeen = true; try { localStorage.setItem('crimboRocketHintSeen', '1'); } catch {} }
   santa.vy = -1.5;
   sfx.rocketStart();
   speech = { lines: wrapText('WAHEEEY!', SPEECH_WRAP), life: 90 };
@@ -1206,7 +1210,7 @@ function drawScene() {
   particles.forEach(p => rect(p.c, p.x - ox, p.y, 1, 1));
   if (speech && (state === 'play' || state === 'paused')) drawSpeech();
   // rocket mode just started: tell the player the controls have changed
-  if (rocket && rocket.t < 110 && (frame >> 3) % 3 !== 0) {
+  if (rocket && rocket.hint && rocket.t < 110 && (frame >> 3) % 3 !== 0) {
     text('HOLD TO FLY!', W / 2, 62, 2, '#ffe14d');
     text('LET GO TO DROP', W / 2, 78, 1, '#ffffff');
   }
