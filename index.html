@@ -53,6 +53,7 @@
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 ctx.imageSmoothingEnabled = false;
+let DC = ctx; // where rect() draws: the screen, or an off-screen image while pre-drawing scenery
 const W = cv.width;
 let H = cv.height;
 let OY = 0; // on tall screens the 256px-high game is shifted down by this much to sit centred
@@ -64,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.6'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '1.7'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -152,6 +153,24 @@ const sleighB = makeSprite([
 ]);
 
 // The odd bird: a grumpy robin flying left, two wing frames
+// Santa without his hat (it flies off when he crashes): same sprites, hat wiped, bald head
+function bald(spr) {
+  const c = document.createElement('canvas');
+  c.width = spr.width; c.height = spr.height;
+  const g = c.getContext('2d');
+  g.drawImage(spr, 0, 0); g.clearRect(0, 0, 13, 3);
+  g.fillStyle = '#f2c09b'; g.fillRect(4, 2, 5, 1);
+  return c;
+}
+const sleighBaldA = bald(sleighA), sleighBaldB = bald(sleighB);
+const hatSprite = makeSprite([
+  '.....WW',
+  '...RRWW',
+  '..RRRR.',
+  '.RRRRR.',
+  'WWWWWWW',
+]);
+
 const birdA = makeSprite([
   '......bb..',
   '......bbb.',
@@ -258,6 +277,11 @@ let scrollX = 0, smoke = [], speed = 1.0;
 // air jumps so he can always land safely.
 const ROCKET_TIME = 300;                   // frames (5 s)
 let rocket = null, holding = false, boost = 1, move = 1;
+// Pause: tap the pause button (or P / Esc), or switch away from the game. Tapping again
+// counts down 3-2-1 before play carries on, so you're not caught off guard.
+let resumeIn = 0;
+// Crash effects: the screen shakes and Santa's hat flies off
+let shakeT = 0, hat = null;
 let birds = [];
 // ---------- Blizzards ----------
 // From 60 seconds into a run, every 20-30 seconds the snow comes down thick for a few
@@ -304,6 +328,7 @@ function reset() {
   speech = null; nextSpeech = 150 + Math.random() * 120; // first line after ~3-5 s
   score = 0; frame = 0; speed = 1.0; dist = 0;
   rocket = null; boost = 1; move = 1; holding = false;
+  resumeIn = 0; shakeT = 0; hat = null;
   fillPlatforms();
 }
 
@@ -510,6 +535,15 @@ const sfx = {
   },
 };
 
+function pauseGame() {
+  if (state !== 'play') return;
+  state = 'paused'; resumeIn = 0; holding = false;
+  if (music) music.pause();
+}
+function resumeGame() { if (state === 'paused' && !resumeIn) resumeIn = 90; } // 3-2-1, then go
+// the pause button, top left, level with the score
+const hudY = () => Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY);
+
 function playIntro() {
   stopMusic();
   intro = CrimboIntro.create(ctx, { tone, noise });
@@ -522,6 +556,7 @@ function jump() {
   if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
   if (state === 'ready') { state = 'play'; startMusic(); return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
+  if (state === 'paused') { resumeGame(); return; }
   if (rocket) return;                             // rocket mode: holding steers instead
   if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
     santa.vy = JUMP; santa.jumps = 1; santa.grounded = 0;
@@ -540,6 +575,7 @@ addEventListener('keydown', e => {
   }
   if (e.code === 'KeyM' && !e.repeat) toggleMusic();
   if (e.code === 'KeyF' && !e.repeat) toggleFx();
+  if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) { if (state === 'play') pauseGame(); else resumeGame(); }
 });
 // "holding" = a finger or key is down (rocket mode: hold to rise)
 addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') holding = false; });
@@ -555,6 +591,7 @@ addEventListener('pointerdown', e => {
   const px = (e.clientX - r.left) * W / r.width, py = (e.clientY - r.top) * H / r.height - OY;
   const hit = state === 'ready' && uiButtons.find(b => px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h);
   if (hit) { hit.action(); initAudio(); return; }
+  if (state === 'play' && px < 24 && py > hudY() - 8 && py < hudY() + 18) { holding = false; pauseGame(); return; }
   jump();
 }, { passive: false });
 // Phones only allow sound to start when a finger lifts (not when it lands), so
@@ -564,18 +601,21 @@ addEventListener('contextmenu', e => e.preventDefault()); // no long-press menu
 // Pause the music when the player switches app or locks the phone
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) keepAwake();
+  if (document.hidden) pauseGame();   // switched app, took a call, locked the phone
   if (document.hidden) {
     if (music) music.pause();
     if (audio) audio.suspend();
   } else {
     if (audio) audio.resume();
-    if (music && musicOn && !musicMuted) music.play().catch(() => {});
+    if (music && musicOn && !musicMuted && state !== 'paused') music.play().catch(() => {});
   }
 });
 
 function die(msg) {
   if (state !== 'play') return;
   state = 'over'; frame = 0; deathMsg = msg; speech = null;
+  shakeT = 20;
+  hat = { x: santa.x + 8, y: santa.y - 1, vx: 1 + Math.random(), vy: -3.2, r: 0 };
   if (score > best) { best = score; try { localStorage.setItem('crimboBestPresents', best); } catch {} }
   burst(santa.x + 12, santa.y + 6, 20, '#d62839', 1.5, 40);
   burst(santa.x + 12, santa.y + 6, 12, '#ffffff', 1.5, 40);
@@ -590,6 +630,13 @@ function update() {
   frame++;
   if (state === 'splash') return;
   if (state === 'intro') { intro.update(); if (intro.done) { state = 'ready'; frame = 0; } return; }
+  if (state === 'paused') {          // everything frozen; count down after a tap to carry on
+    if (resumeIn > 0 && --resumeIn === 0) {
+      state = 'play';
+      if (music && musicOn && !musicMuted) music.play().catch(() => {});
+    }
+    return;
+  }
   const moving = state === 'play' ? move : 0; // scenery stays still until Santa sets off
   flakes.forEach(f => {
     f.y += f.s; f.x -= f.s * 0.2 + moving * 0.6;
@@ -615,6 +662,8 @@ function update() {
   if (state === 'ready') return;
   if (state === 'over') {
     if (santa.y < H + 20) { santa.vy = Math.min(santa.vy + GRAV, 6); santa.y += santa.vy; }
+    if (shakeT > 0) shakeT--;
+    if (hat && hat.y < H) { hat.vy += GRAV; hat.x += hat.vx; hat.y += hat.vy; hat.r += 0.25; }
     return;
   }
 
@@ -757,7 +806,39 @@ function rocketStep() {
 }
 
 // ---------- Drawing ----------
-function rect(c, x, y, w, h) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+function rect(c, x, y, w, h) { DC.fillStyle = c; DC.fillRect(Math.round(x), Math.round(y), w, h); }
+
+// ---------- Pre-drawn scenery ----------
+// The moon, hills, snow bank and logo used to be drawn pixel by pixel every frame (hundreds
+// of tiny drawing calls). They're now drawn once into images and reused, which is much
+// lighter on phone batteries and smoother on older phones.
+function offscreen(w, h, paint) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  DC = c.getContext('2d'); paint(); DC = ctx;
+  return c;
+}
+const LOOP = 880; // the hills and snow bank repeat every 880px, so each is one pre-drawn strip
+const wave = (x, n) => Math.sin(x * Math.PI * 2 * n / LOOP);
+const hillHeight = x => 14 + wave(x, 10) * 5 + wave(x, 28) * 1.5;
+const bankAt = x => GROUND - 6 - wave(x, 13) * 2 - wave(x, 6) * 2;   // x is in the bank's own scrolling coordinates
+const moonImg = offscreen(19, 19, () => {
+  const MX = 9, MY = 9, MR = 9;
+  for (let dy = -MR; dy <= MR; dy++) for (let dx = -MR; dx <= MR; dx++) {
+    const d = dx * dx + dy * dy;
+    if (d <= MR * MR + MR) rect(d > (MR - 1) * (MR - 1) + MR - 1 && dx + dy > 0 ? '#e8d9a0' : '#fff3c4', MX + dx, MY + dy, 1, 1);
+  }
+  rect('#e8d9a0', MX - 4, MY - 3, 3, 3); rect('#e8d9a0', MX + 2, MY + 2, 2, 2); rect('#e8d9a0', MX + 3, MY - 5, 1, 1); // craters
+});
+const hillsImg = offscreen(LOOP + W, 22, () => {
+  for (let x = 0; x < LOOP + W; x++) { const h = hillHeight(x); rect('#a9b8d0', x, 22 - h, 1, h); }
+});
+const bankImg = offscreen(LOOP + W, 14, () => {   // covers GROUND - 12 to GROUND + 2
+  for (let x = 0; x < LOOP + W; x++) {
+    const y = Math.round(bankAt(x)) - (GROUND - 12);
+    rect('#bfcbdd', x, y, 1, 14 - y); rect('#d3dcea', x, y, 1, 1);
+  }
+});
 
 function drawSky() {
   const bands = ['#0b1026', '#111a3a', '#18244d', '#213160', '#2b3f73'];
@@ -766,25 +847,13 @@ function drawSky() {
   stars.forEach(s => {
     if ((frame + s.t) % 60 < 50) rect('#fff7c2', s.x, s.y, 1, 1);
   });
-  // moon
-  const MX = 111, MY = 29, MR = 9;
-  for (let dy = -MR; dy <= MR; dy++) for (let dx = -MR; dx <= MR; dx++) {
-    const d = dx * dx + dy * dy;
-    if (d <= MR * MR + MR) {
-      rect(d > (MR - 1) * (MR - 1) + MR - 1 && dx + dy > 0 ? '#e8d9a0' : '#fff3c4', MX + dx, MY + dy, 1, 1);
-    }
-  }
-  // craters
-  rect('#e8d9a0', MX - 4, MY - 3, 3, 3); rect('#e8d9a0', MX + 2, MY + 2, 2, 2); rect('#e8d9a0', MX + 3, MY - 5, 1, 1);
+  ctx.drawImage(moonImg, 102, 20);
   // far hills scroll slowly (parallax layer 1)
-  const hx = (scrollX + ox) * 0.2;
-  for (let x = 0; x < W; x++) {
-    const h = 14 + Math.sin((x + hx) / 14) * 5 + Math.sin((x + hx) / 5) * 1.5;
-    rect('#a9b8d0', x, GROUND - h, 1, h);
-  }
+  const hx = Math.round((scrollX + ox) * 0.2) % LOOP;
+  ctx.drawImage(hillsImg, hx, 0, W, 22, 0, GROUND - 22, W, 22);
   // near snow bank + trees scroll together at half speed (parallax layer 2)
-  const tx = (scrollX + ox) * 0.5;
-  const bankY = sx => GROUND - 6 - Math.sin((sx + tx) / 11) * 2 - Math.sin((sx + tx) / 23) * 2;
+  const tx = (scrollX + ox) * 0.5, txi = Math.round(tx) % LOOP;
+  const bankY = sx => bankAt(sx + txi);
   const span = W + 40;
   trees.forEach((t, i) => {
     const x = (((i * 23 - tx) % span) + span) % span - 20;
@@ -795,11 +864,8 @@ function drawSky() {
       if ((Math.floor(frame / 15) + j) % 3) rect(l.c, Math.round(x) + l.x, ty + l.y, 1, 1);
     });
   });
-  for (let x = 0; x < W; x++) {
-    const y = Math.round(bankY(x));
-    rect('#bfcbdd', x, y, 1, H - y);   // snow runs all the way to the bottom
-    rect('#d3dcea', x, y, 1, 1);
-  }
+  ctx.drawImage(bankImg, txi, 0, W, 14, 0, GROUND - 12, W, 14);
+  rect('#bfcbdd', 0, GROUND + 2, W, H);   // snow runs all the way to the bottom
   // soft drifts in the snowfield, scrolling with the trees
   for (let i = 0; i < 6; i++) {
     const x = (((i * 31 - tx) % span) + span) % span - 20;
@@ -981,12 +1047,36 @@ function logoWord(str, x, y, s, dx, dy) {
   return px;
 }
 function logoOutline(px, col) {
-  ctx.fillStyle = col;
-  px.forEach(p => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (a || b) ctx.fillRect(p.x + a, p.y + b, 1, 1); });
+  DC.fillStyle = col;
+  px.forEach(p => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (a || b) DC.fillRect(p.x + a, p.y + b, 1, 1); });
 }
 const LOGO_H = 48; // height the logo takes up in the title panel
+let logoTop = null, logoLetters = null;
+function buildLogo() {
+  logoTop = offscreen(W, 40, () => drawLogoTop(-6));   // as if drawn at y0 = 2
+  logoLetters = [...'PANIC!'].map(ch => offscreen(11, 17, () => {
+    const px = logoWord(ch, 1, 1, 3);
+    logoOutline(px, '#3a0a12');
+    px.forEach(p => rect(p.ly < 5 ? '#ffe680' : p.ly < 10 ? '#f7c843' : '#ff9a3c', p.x, p.y, 1, 1));
+  }));
+}
 function drawLogo(y0) {
-  const oy = y0 - 8; // logo was designed with the snow caps starting at y = 8
+  if (!logoTop) buildLogo();
+  const oy = y0 - 8;
+  ctx.drawImage(logoTop, 0, y0 - 2);
+  // PANIC!: gold, nervously shaking
+  const sh = Math.floor(frame / 4);
+  logoLetters.forEach((img, i) => {
+    const dx = (sh * 7 + i * 13) % 5 === 0 ? 1 : ((sh * 3 + i * 5) % 7 === 0 ? -1 : 0);
+    const dy = (sh + i) % 6 === 0 ? -1 : 0;
+    ctx.drawImage(img, 38 + i * 12 - 1 + dx, oy + 38 - 1 + dy);
+  });
+  // twinkles
+  [[126, 12], [10, 40], [122, 46], [130, 30]].forEach(([x, y], k) => {
+    if ((frame + k * 17) % 50 < 25) { rect('#ffffff', x, oy + y - 1, 1, 3); rect('#ffffff', x - 1, oy + y, 3, 1); }
+  });
+}
+function drawLogoTop(oy) {   // oy = y0 - 8; the logo was designed with the snow caps starting at y = 8
   // CRIMBO: red and white candy-cane stripes
   const top = logoWord('CRIMBO', 26, oy + 10, 4);
   logoOutline(top, '#3a0a12');
@@ -1003,17 +1093,6 @@ function drawLogo(y0) {
   rect('#1b6b2c', 14, oy + 8, 4, 3); rect('#2e9e44', 15, oy + 7, 2, 5);
   rect('#1b6b2c', 19, oy + 10, 3, 4); rect('#2e9e44', 20, oy + 9, 1, 6);
   rect('#e23b3b', 17, oy + 11, 2, 2); rect('#ff4d4d', 19, oy + 13, 2, 2); rect('#e23b3b', 16, oy + 13, 2, 2);
-  // PANIC!: gold, nervously shaking
-  const sh = Math.floor(frame / 4);
-  const bot = logoWord('PANIC!', 38, oy + 38, 3,
-    i => ((sh * 7 + i * 13) % 5 === 0 ? 1 : ((sh * 3 + i * 5) % 7 === 0 ? -1 : 0)),
-    i => ((sh + i) % 6 === 0 ? -1 : 0));
-  logoOutline(bot, '#3a0a12');
-  bot.forEach(p => rect(p.ly < 5 ? '#ffe680' : p.ly < 10 ? '#f7c843' : '#ff9a3c', p.x, p.y, 1, 1));
-  // twinkles
-  [[126, 12], [10, 40], [122, 46], [130, 30]].forEach(([x, y], k) => {
-    if ((frame + k * 17) % 50 < 25) { rect('#ffffff', x, oy + y - 1, 1, 3); rect('#ffffff', x - 1, oy + y, 3, 1); }
-  });
 }
 
 // Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it
@@ -1053,8 +1132,11 @@ function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     return;
   }
-  ctx.setTransform(1, 0, 0, 1, 0, OY);
-  rect('#0b1026', 0, -OY, W, OY);
+  // screen shake after a crash: a few pixels, dying away
+  const mag = Math.ceil(shakeT / 7), sx = shakeT ? (frame % 4 < 2 ? mag : -mag) : 0, sy = shakeT ? (frame % 6 < 3 ? mag : -mag) : 0;
+  if (shakeT) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0b1026'; ctx.fillRect(0, 0, W, H); } // no stale edges
+  ctx.setTransform(1, 0, 0, 1, sx, OY + sy);
+  rect('#0b1026', -4, -OY - 4, W + 8, OY + 4);
   drawScene();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (debugOn && state === 'ready') drawDebug();
@@ -1075,7 +1157,7 @@ function drawBlizzard(bl) {
 
 function drawScene() {
   drawSky();
-  const bl = state === 'play' || state === 'over' ? blizzardLevel() : 0;
+  const bl = state === 'play' || state === 'over' || state === 'paused' ? blizzardLevel() : 0;
   if (bl > 0) rect(`rgba(200,210,226,${(0.7 * bl).toFixed(2)})`, 0, -OY, W, H); // storm hides the background
   platforms.forEach(p => p.kind === 'roof' ? drawRoof(p) : drawChimney(p));
   smoke.forEach(p => {
@@ -1098,7 +1180,8 @@ function drawScene() {
 
   // Santa: reindeer trots on the ground, sleigh tilts in the air
   const onGround = santa.grounded === COYOTE;
-  const spr = Math.floor(frame / (onGround && state === 'play' ? 5 : 10)) % 2 ? sleighA : sleighB;
+  const flip = Math.floor(frame / (onGround && state === 'play' ? 5 : 10)) % 2;
+  const spr = hat ? (flip ? sleighBaldA : sleighBaldB) : (flip ? sleighA : sleighB);
   ctx.save();
   ctx.translate(Math.round(santa.x + 13), Math.round(santa.y + 6));
   const ang = state === 'over' ? 0.6 : onGround ? 0 : Math.max(-0.35, Math.min(0.5, santa.vy * 0.08));
@@ -1119,11 +1202,30 @@ function drawScene() {
   ctx.drawImage(spr, -13, -6);
   ctx.restore();
 
+  if (hat) { ctx.save(); ctx.translate(Math.round(hat.x), Math.round(hat.y)); ctx.rotate(hat.r); ctx.drawImage(hatSprite, -3, -2); ctx.restore(); }
   particles.forEach(p => rect(p.c, p.x - ox, p.y, 1, 1));
-  if (speech && state === 'play') drawSpeech();
+  if (speech && (state === 'play' || state === 'paused')) drawSpeech();
+  // rocket mode just started: tell the player the controls have changed
+  if (rocket && rocket.t < 110 && (frame >> 3) % 3 !== 0) {
+    text('HOLD TO FLY!', W / 2, 62, 2, '#ffe14d');
+    text('LET GO TO DROP', W / 2, 78, 1, '#ffffff');
+  }
   flakes.forEach(f => rect('#ffffff', f.x, f.y, 1, 1));
 
-  if (state === 'play') text(score, W / 2, Math.max(12, Math.ceil(SAFE_TOP) + 4 - OY), 2); // presents saved, below the notch
+  if (state === 'play' || state === 'paused') text(score, W / 2, hudY(), 2); // presents saved, below the notch
+  if (state === 'play') {           // pause button, top left
+    const by = hudY() - 1;
+    rect('rgba(11,16,38,0.55)', 3, by, 13, 12); rect('#ffffff', 6, by + 3, 2, 6); rect('#ffffff', 11, by + 3, 2, 6);
+  }
+  if (state === 'paused') {
+    rect('rgba(11,16,38,0.8)', 22, 84, 100, 56);
+    rect('#f7c843', 22, 84, 100, 1); rect('#f7c843', 22, 139, 100, 1);
+    if (resumeIn) text(String(Math.ceil(resumeIn / 30)), W / 2, 102, 3, '#ffe14d');
+    else {
+      text('PAUSED', W / 2, 96, 2, '#ffffff');
+      if ((frame >> 4) % 2) text('TAP TO CARRY ON', W / 2, 120, 1, '#f7c843');
+    }
+  }
   if (state === 'ready') {
     // panel sized to its content and centred in the sky above Santa's rooftop
     const lineH = 6, panelH = 6 + LOGO_H + 4 + STORY_LINES.length * lineH + 5 + 17 + 29 + (best ? 14 : 0) + 11;
