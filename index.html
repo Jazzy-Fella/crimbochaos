@@ -64,7 +64,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.5'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '1.6'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -190,6 +190,19 @@ const PRESENT_COLORS = [
   ['#f2b134', '#b8862b', '#d62839'], // gold with red ribbon
   ['#1fb5a8', '#137a71', '#ffe680'], // teal with yellow ribbon
 ];
+function makePresent([paper, shade, ribbon]) {
+  const c = document.createElement('canvas');
+  c.width = 7; c.height = 7;
+  const x = c.getContext('2d');
+  PRESENT_ROWS.forEach((row, py) => [...row].forEach((ch, px) => {
+    const col = { X: paper, x: shade, Y: ribbon }[ch];
+    if (col) { x.fillStyle = col; x.fillRect(px, py, 1, 1); }
+  }));
+  return c;
+}
+// the super present flashes between these two
+const superPresentA = makePresent(['#ffe14d', '#e0b020', '#ffffff']);
+const superPresentB = makePresent(['#ffffff', '#e8e8f0', '#ffe14d']);
 const presents = PRESENT_COLORS.map(([paper, shade, ribbon]) => {
   const c = document.createElement('canvas');
   c.width = 7; c.height = 7;
@@ -237,6 +250,14 @@ const LIT = [1, 3, 5, 6]; // which trees get fairy lights
 // ---------- Game state ----------
 const GRAV = 0.2, JUMP = -3.6, JUMP2 = -3.3, SANTA_X = 30, COYOTE = 6;
 let scrollX = 0, smoke = [], speed = 1.0;
+// ---------- Super present / rocket mode ----------
+// A rare flashing super present straps rockets to the sleigh: Santa blasts forward at
+// nearly double speed, invincible (through chimneys, birds bounce off, can't fall), and
+// the controls change: hold to rise, let go to sink. A stream of bonus presents comes at
+// him. In the last second the rockets sputter; when they cut out he gets a hop and two
+// air jumps so he can always land safely.
+const ROCKET_TIME = 300;                   // frames (5 s)
+let rocket = null, holding = false, boost = 1, move = 1;
 let birds = [];
 // ---------- Blizzards ----------
 // From 60 seconds into a run, every 20-30 seconds the snow comes down thick for a few
@@ -282,6 +303,7 @@ function reset() {
   nextBlizzard = BLIZZARD_START + Math.random() * 300;
   speech = null; nextSpeech = 150 + Math.random() * 120; // first line after ~3-5 s
   score = 0; frame = 0; speed = 1.0; dist = 0;
+  rocket = null; boost = 1; move = 1; holding = false;
   fillPlatforms();
 }
 
@@ -309,7 +331,9 @@ function fillPlatforms() {
     const p = { x: last.x + last.w + gap, w, top, kind: 'chimney', smokes: Math.random() < 0.5, landed: false };
     if (Math.random() < 0.5) gifts.push({
       x: last.x + last.w + Math.round(gap / 2) - 3, y: Math.min(last.top, top) - rnd(lerp(18, 26, d), lerp(30, 42, d)), got: false,
-      look: Math.floor(Math.random() * presents.length)
+      look: Math.floor(Math.random() * presents.length),
+      // now and then (after the first 10 s, one at a time, not during a rocket run) a super present
+      super: !rocket && playFrames > 600 && !gifts.some(g => g.super && !g.got) && Math.random() < 0.1,
     });
     // birds start appearing after a while, then get more common
     if (d > 0.15 && w >= 20 && Math.random() < lerp(0.08, 0.3, (d - 0.15) / 0.85))
@@ -448,6 +472,21 @@ const sfx = {
                    tone({ type: 'sine', f0: 2600, f1: 3600, dur: 0.06, vol: 0.08, delay: d });
                    tone({ type: 'sine', f0: 3400, f1: 2400, dur: 0.06, vol: 0.08, delay: d + 0.06 });
                  }); },
+  rocketStart() {                    // power-up jingle and ignition whoosh
+    [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => tone({ f0: f, dur: 0.07, vol: 0.06, delay: i * 0.05 }));
+    noise({ dur: 0.6, vol: 0.2, f: 300, f1: 2500, type: 'bandpass', delay: 0.1 });
+  },
+  rocketRumble(ending) {             // rumble while flying (crackly as it runs out)
+    noise({ dur: 0.1, vol: ending ? 0.02 : 0.035, f: ending ? 400 : 700, type: 'bandpass' });
+  },
+  rocketEnd() {                      // sputter and pfft
+    tone({ f0: 600, f1: 120, dur: 0.35, vol: 0.06 });
+    noise({ dur: 0.25, vol: 0.08, f: 500, type: 'bandpass', delay: 0.05 });
+  },
+  bonk() {                           // a bird bouncing off the rocket sleigh
+    tone({ f0: 900, f1: 1500, dur: 0.06, vol: 0.06 });
+    tone({ type: 'sawtooth', f0: 800, f1: 500, dur: 0.08, vol: 0.04, delay: 0.05 });
+  },
   death(msg) {
     let jingleAt = 0.6;
     if (msg === 'CRASH!') {          // thud and clatter into a chimney
@@ -483,12 +522,13 @@ function jump() {
   if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
   if (state === 'ready') { state = 'play'; startMusic(); return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
+  if (rocket) return;                             // rocket mode: holding steers instead
   if (santa.grounded > 0) {                       // normal jump (with a little coyote time)
     santa.vy = JUMP; santa.jumps = 1; santa.grounded = 0;
     burst(santa.x + 6, santa.y + 13, 5, '#ffffff', 0.6);
     sfx.jump();
   } else if (santa.jumps < 2) {                   // magic double jump
-    santa.vy = JUMP2; santa.jumps = 2;
+    santa.vy = JUMP2; santa.jumps++;
     burst(santa.x + 12, santa.y + 12, 12, '#ffe680', 1.2, 24);
     sfx.doubleJump();
   }
@@ -496,16 +536,20 @@ function jump() {
 
 addEventListener('keydown', e => {
   if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
-    e.preventDefault(); if (!e.repeat) jump();
+    e.preventDefault(); holding = true; if (!e.repeat) jump();
   }
   if (e.code === 'KeyM' && !e.repeat) toggleMusic();
   if (e.code === 'KeyF' && !e.repeat) toggleFx();
 });
+// "holding" = a finger or key is down (rocket mode: hold to rise)
+addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') holding = false; });
+['pointerup', 'pointercancel', 'blur'].forEach(ev => addEventListener(ev, () => { holding = false; }));
 // Taps anywhere on the screen count (not just on the game itself), so on a phone
 // the dark bars either side of the game are tappable too.
 addEventListener('pointerdown', e => {
   if (e.button > 0) return;
   e.preventDefault();
+  holding = true;
   // tick boxes on the title screen take the click instead of starting the game
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * W / r.width, py = (e.clientY - r.top) * H / r.height - OY;
@@ -546,7 +590,7 @@ function update() {
   frame++;
   if (state === 'splash') return;
   if (state === 'intro') { intro.update(); if (intro.done) { state = 'ready'; frame = 0; } return; }
-  const moving = state === 'play' ? speed : 0; // scenery stays still until Santa sets off
+  const moving = state === 'play' ? move : 0; // scenery stays still until Santa sets off
   flakes.forEach(f => {
     f.y += f.s; f.x -= f.s * 0.2 + moving * 0.6;
     if (f.y > H - OY) { f.y = -OY - 2; f.x = Math.random() * W; }
@@ -595,25 +639,32 @@ function update() {
   }
   const bl = blizzardLevel();
   if (bl > 0) blizzardFlakes.forEach(f => {
-    f.x -= 2.5 + f.s * 2.5 + speed; f.y += 1.2 + f.s * 1.5;
+    f.x -= 2.5 + f.s * 2.5 + move; f.y += 1.2 + f.s * 1.5;
     if (f.x < -4) { f.x += W + 8; f.y = Math.random() * H - OY; }
     if (f.y > H - OY) { f.y = -OY - 4; f.x = Math.random() * (W + 40); }
   });
 
   // speed ramps up slowly the further you go
-  dist += speed;
+  dist += speed;                     // difficulty follows normal speed, not rocket boost
   speed = lerp(1.0, 2.1, difficulty());
+  if (rocket) {                      // ease up to 1.8x, and back down as the rockets die
+    rocket.t++;
+    boost = 1 + 0.8 * Math.min(1, rocket.t / 20, (ROCKET_TIME - rocket.t) / 30);
+  } else boost = 1;
+  move = speed * boost;
 
-  platforms.forEach(p => p.x -= speed);
-  gifts.forEach(g => g.x -= speed);
+  platforms.forEach(p => p.x -= move);
+  gifts.forEach(g => g.x -= move);
   birds.forEach(b => {
-    b.x -= speed + lerp(0.3, 0.6, difficulty()); b.t++;
+    b.x -= move + lerp(0.3, 0.6, difficulty()); b.t++;
     if (!b.seen && b.x < W) { b.seen = true; sfx.bird(); } // tweet as it flies on screen
   });
   birds = birds.filter(b => b.x > -12);
   platforms = platforms.filter(p => p.x + p.w > -20);
   gifts = gifts.filter(g => g.x > -10 && !g.got);
   fillPlatforms();
+
+  if (rocket) { rocketStep(); return; }
 
   const prevFeet = santa.y + 13;
   santa.vy = Math.min(santa.vy + GRAV, 6);
@@ -635,8 +686,8 @@ function update() {
   }
   if (onPlat) { santa.grounded = COYOTE; santa.jumps = 0; }
   else {
-    santa.grounded--;
-    if (santa.grounded <= 0 && santa.jumps === 0) santa.jumps = 1; // walked off: only the double jump left
+    // walked off an edge: only the double jump left (checked once, as coyote time runs out)
+    if (--santa.grounded === 0 && santa.jumps === 0) santa.jumps = 1;
   }
 
   if (santa.y > H) die('FELL!');
@@ -655,8 +706,54 @@ function update() {
       g.got = true; score++;   // score = presents saved
       sfx.present();
       burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
+      if (g.super) startRocket();
     }
   });
+}
+
+function startRocket() {
+  rocket = { t: 0 };
+  santa.vy = -1.5;
+  sfx.rocketStart();
+  speech = { lines: wrapText('WAHEEEY!', SPEECH_WRAP), life: 90 };
+  burst(santa.x + 12, santa.y + 6, 24, '#ffe14d', 1.6, 30);
+}
+
+// One frame of rocket flight: hold to rise, let go to sink, invincible
+function rocketStep() {
+  const ending = rocket.t > ROCKET_TIME - 60;
+  const firing = holding && !(ending && (rocket.t >> 2) % 3 === 0);   // sputters near the end
+  santa.vy = Math.max(-3, Math.min(3, santa.vy + (firing ? -0.42 : 0.28)));
+  santa.y += santa.vy;
+  const top = Math.ceil(SAFE_TOP) - OY + 4, bottom = 190;
+  if (santa.y < top) { santa.y = top; santa.vy = 0; }
+  if (santa.y > bottom) { santa.y = bottom; santa.vy = 0; }
+  // exhaust: flames and sparkles out of the back
+  for (let i = 0; i < 2; i++) particles.push({
+    x: santa.x - 4, y: santa.y + 7 + Math.random() * 3, vx: -1 - Math.random() * 1.5, vy: (Math.random() - 0.5) * 0.6,
+    life: 10 + Math.random() * 8, c: ['#ffe14d', '#ff9a3c', '#ffffff', '#ff6b3c'][Math.floor(Math.random() * 4)],
+  });
+  if (frame % 6 === 0) sfx.rocketRumble(ending);
+  // a stream of bonus presents to steer into
+  if (!ending && rocket.t % 18 === 0) gifts.push({ x: W + 4, y: 30 + Math.random() * 140, got: false, look: Math.floor(Math.random() * presents.length) });
+  // birds just bounce off
+  const box = { x: santa.x + 3, y: santa.y + 2, w: 21, h: 10 };
+  birds.forEach(b => {
+    const by = b.y + Math.sin(b.t / 12) * 2;
+    if (box.x < b.x + 9 && box.x + box.w > b.x + 1 && box.y < by + 7 && box.y + box.h > by + 2) {
+      burst(b.x + 5, by + 4, 10, '#7a4a24', 1.4, 25); b.x = -100; sfx.bonk();
+    }
+  });
+  gifts.forEach(g => {
+    if (!g.got && box.x < g.x + 7 && box.x + box.w > g.x && box.y < g.y + 7 && box.y + box.h > g.y) {
+      g.got = true; score++; sfx.present(); burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
+    }
+  });
+  if (rocket.t >= ROCKET_TIME) {      // rockets cut out: a little hop and two air jumps
+    rocket = null; boost = 1;
+    santa.vy = -2.5; santa.jumps = 0; santa.grounded = -1;
+    sfx.rocketEnd();
+  }
 }
 
 // ---------- Drawing ----------
@@ -990,7 +1087,14 @@ function drawScene() {
   });
   if (bl > 0) drawBlizzard(bl);   // birds, presents and Santa stay in front of the storm
   birds.forEach(b => ctx.drawImage(Math.floor(b.t / 6) % 2 ? birdA : birdB, Math.round(b.x - ox * birdFactor), Math.round(b.y + Math.sin(b.t / 12) * 2)));
-  gifts.forEach(g => ctx.drawImage(presents[g.look], Math.round(g.x - ox), Math.round(g.y + Math.sin((frame + g.x) / 8))));
+  gifts.forEach(g => {
+    const gx = Math.round(g.x - ox), gy = Math.round(g.y + Math.sin((frame + g.x) / 8));
+    if (!g.super) { ctx.drawImage(presents[g.look], gx, gy); return; }
+    // super present: flashes yellow and white, with sparkles circling it
+    rect('rgba(255,230,80,0.35)', gx - 2, gy - 2, 11, 11);
+    ctx.drawImage((frame >> 3) % 2 ? superPresentA : superPresentB, gx, gy);
+    for (let i = 0; i < 3; i++) { const a = frame / 10 + i * 2.1; rect('#ffffff', gx + 3 + Math.cos(a) * 7, gy + 3 + Math.sin(a) * 7, 1, 1); }
+  });
 
   // Santa: reindeer trots on the ground, sleigh tilts in the air
   const onGround = santa.grounded === COYOTE;
@@ -999,6 +1103,19 @@ function drawScene() {
   ctx.translate(Math.round(santa.x + 13), Math.round(santa.y + 6));
   const ang = state === 'over' ? 0.6 : onGround ? 0 : Math.max(-0.35, Math.min(0.5, santa.vy * 0.08));
   ctx.rotate(Math.round(ang * 8) / 8);
+  if (rocket) {
+    // two rockets strapped to the back, with flickering flames
+    const ending = rocket.t > ROCKET_TIME - 60, lit = !ending || (rocket.t >> 2) % 3 !== 0;
+    [[0, '#c7c7c7'], [4, '#b0b0b0']].forEach(([dy, body]) => {
+      rect(body, -19, -1 + dy, 8, 3); rect('#d62839', -12, -1 + dy, 2, 3); rect('#7a7a7a', -20, -1 + dy, 1, 3);
+      if (lit) { const fl = 3 + ((frame + dy) % 4); rect('#ff9a3c', -20 - fl, dy, fl, 2); rect('#ffe14d', -22, dy, 2, 1); }
+    });
+    // invincible: gold sparkles circling the sleigh (blinking faster as the rockets run out)
+    if (!ending || (frame >> 2) % 2) for (let i = 0; i < 6; i++) {
+      const a = frame / 6 + i * 1.05, big = (frame + i * 5) % 12 < 4;
+      rect(i % 3 ? '#ffe14d' : '#ffffff', Math.cos(a) * 17, Math.sin(a) * 10, big ? 2 : 1, big ? 2 : 1);
+    }
+  }
   ctx.drawImage(spr, -13, -6);
   ctx.restore();
 
@@ -1058,8 +1175,8 @@ function loop(now) {
   acc = Math.min(acc + (now - last), 200); last = now;
   while (acc >= STEP) { update(); acc -= STEP; }
   const alpha = acc / STEP;
-  ox = state === 'play' ? speed * alpha : 0;
-  birdFactor = state === 'play' ? (speed + lerp(0.3, 0.6, difficulty())) / speed : 1;
+  ox = state === 'play' ? move * alpha : 0;
+  birdFactor = state === 'play' ? (move + lerp(0.3, 0.6, difficulty())) / move : 1;
   draw();
   requestAnimationFrame(loop);
 }
