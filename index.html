@@ -64,7 +64,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '1.4'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '1.5'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -253,9 +253,10 @@ function blizzardLevel() {                 // 0 = clear, 1 = full storm (eases i
 // true while a blizzard is on, or about to arrive by the time new chimneys scroll on screen
 const blizzardNear = () => !!blizzard || (playFrames > 0 && nextBlizzard - playFrames < 150);
 // Hungover Santa mutters now and then
-const SANTA_LINES = ["Ow my head", "I'm still drunk", "I feel like death", "I'm so hungover", "Why did I drink so much", "*burp*"];
+const SANTA_LINES = ["Ow my head", "I'm still drunk", "I feel like death", "I'm so hungover", "Why did I drink so much", "*burp*",
+  "She's going to kill me", "I'm gonna be sick"];
 const SPEECH_TIME = 120;                   // frames a bubble stays up (2 s)
-const SPEECH_WRAP = 7;                     // max characters per line, keeps the bubble about sleigh-width
+const SPEECH_WRAP = 8;                     // max characters per line, keeps the bubble about sleigh-width
 let speech = null, nextSpeech = 0, lastLine = -1;
 let state, santa, platforms, gifts, score, best, frame, flakes, stars, particles, deathMsg, dist;
 
