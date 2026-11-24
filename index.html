@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.0'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.1'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -283,6 +283,18 @@ const ROCKET_TIME = 300;                   // frames (5 s)
 const ICE_FROM = 20 * 60, FIRE_FROM = 40 * 60;     // frames of play before each appears
 const FIRE_CYCLE = 150, FIRE_WARN = 80, FIRE_FLARE = 105;   // 2.5 s cycle: smoke, flicker, flare
 const firePhase = p => (playFrames + p.fire.off) % FIRE_CYCLE;
+// How far Santa travels in the air with a well-timed double jump at the current speed,
+// landing back at the height he took off from (keeps fire chimneys jumpable over)
+function airReach() {
+  const k = Math.sqrt(speed), g = GRAV * k * k, j1 = JUMP * k, j2 = JUMP2 * k, cap = 6 * k;
+  let best = 0;
+  for (let dj = 1; dj < 60; dj++) {
+    let y = 0, vy = j1, t = 0;
+    while (t < 400) { t++; if (t === dj) vy = j2; vy = Math.min(vy + g, cap); y += vy; if (y >= 0 && vy > 0) break; }
+    best = Math.max(best, t * speed);
+  }
+  return best;
+}
 // "HOLD TO FLY!" only shows for the very first super present on this device
 let rocketHintSeen = false;
 try { rocketHintSeen = localStorage.getItem('crimboRocketHintSeen') === '1'; } catch {}
@@ -366,13 +378,29 @@ function fillPlatforms() {
       if (playFrames > ICE_FROM && Math.random() < lerp(0.18, 0.28, Math.min(1, (playFrames - ICE_FROM) / 3600))) type = 'ice';
       else if (playFrames > FIRE_FROM && !last.fire && Math.random() < lerp(0.14, 0.24, Math.min(1, (playFrames - FIRE_FROM) / 3600))) type = 'fire';
     }
-    const fire = type === 'fire';   // fire chimneys: a slightly easier gap before, and a wider top
-    const gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)) * (easy ? 0.8 : 1) * (fire ? 0.85 : 1));
-    const w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d))) + (easy ? 4 : 0) + (fire ? 6 : 0);
+    if (last.fire) type = 'plain';  // straight after a fire chimney: always a plain one
+    const fire = type === 'fire';
+    let gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)) * (easy ? 0.8 : 1));
+    let w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d))) + (easy ? 4 : 0);
     const rise = lerp(10, 26, d), drop = lerp(12, 34, d);
-    const top = Math.max(115, Math.min(215, last.top + rnd(-rise, drop)));
+    let top = Math.max(115, Math.min(215, last.top + rnd(-rise, drop)));
+    // Fire chimneys must always be jumpable *over*, from the chimney before to the one after,
+    // in case it's about to flare. So: the whole distance (gap + fire chimney + gap) stays within
+    // 70% of how far a double jump reaches at this speed, the fire chimney is never higher than
+    // the one before (so you can't clip its side), and the one after isn't much higher either.
+    let overFire = null;
+    if (fire) {
+      const budget = Math.floor((airReach() + 21) * 0.7);   // 21 = Santa's width
+      w = Math.round(rnd(22, 28));
+      gap = Math.max(8, Math.min(gap, budget - w - 12));
+      top = Math.max(top, last.top + 4);
+      overFire = { left: budget - gap - w, fromTop: last.top };
+    } else if (last.fire) {
+      gap = Math.max(6, Math.min(gap, last.overFire.left));
+      top = Math.min(215, Math.max(top, last.overFire.fromTop - 4));
+    }
     const p = { x: last.x + last.w + gap, w, top, kind: 'chimney', smokes: fire || Math.random() < 0.5, landed: false,
-                ice: type === 'ice', fire: fire ? { off: Math.floor(Math.random() * FIRE_CYCLE) } : null };
+                ice: type === 'ice', fire: fire ? { off: Math.floor(Math.random() * FIRE_CYCLE) } : null, overFire };
     if (Math.random() < 0.5) gifts.push({
       x: last.x + last.w + Math.round(gap / 2) - 3, y: Math.min(last.top, top) - rnd(lerp(18, 26, d), lerp(30, 42, d)), got: false,
       look: Math.floor(Math.random() * presents.length),
