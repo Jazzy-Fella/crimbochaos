@@ -1043,7 +1043,7 @@ function drawScene() {
   if (state === 'over') {
     rect('rgba(11,16,38,0.6)', 22, 70, 100, 80);
     rect('#f7c843', 22, 70, 100, 1); rect('#f7c843', 22, 149, 100, 1);
-    text(deathMsg, W / 2, 80, 2, '#d62839', '#fff');
+    text('CRASH!', W / 2, 80, 2, '#d62839', '#fff'); // same message however you die (sounds still differ)
     text('PRESENTS SAVED ' + score, W / 2, 104, 1);
     text('BEST ' + best, W / 2, 116, 1, '#ffe680');
     if (frame > 30 && Math.floor(frame / 20) % 2) text('TAP TO RETRY', W / 2, 134, 1);
