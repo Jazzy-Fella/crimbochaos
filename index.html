@@ -10,11 +10,11 @@
 <!-- solid black status bar: with "black-translucent", iPhone home screen apps get a window
      that starts under the clock but stops a status bar short of the bottom of the screen -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="apple-mobile-web-app-title" content="Crimbo Panic">
+<meta name="apple-mobile-web-app-title" content="Xmas Panic">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<title>Crimbo Panic</title>
+<title>Xmas Panic</title>
 <style>
   html, body {
     margin: 0; height: 100%; background: #0b1026; overflow: hidden;
@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.1'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.2'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -1051,9 +1051,9 @@ function text(str, cx, y, scale = 1, color = '#fff', shadow = '#0b1026') {
 }
 
 // Intro story, word-wrapped to fit the pixel font (4px per character)
-const STORY = "Oh crumbs! Santa was at the pub last night and got absolutely bladdered. " +
+const STORY = "Oh crumbs! Santa was at the pub last night and got absolutely hammered. " +
   "On his way back, he dropped all the kids' presents. You'd better grab as many as you can " +
-  "or some poor little buggers will be getting nowt!";
+  "or some poor little buggers will be getting nothing!";
 const STORY_LINES = (() => {
   const max = Math.floor((W - 8) / 4), lines = [];
   let line = '';
@@ -1121,10 +1121,54 @@ function drawCheckbox(x, y, on) {
   if (on) [[1, 3], [2, 4], [3, 3], [4, 2], [5, 1]].forEach(([dx, dy]) => rect('#9be29b', x + dx, y + dy, 1, 1)); // tick
 }
 
-// ---------- Title logo: candy cane "CRIMBO" over a shaking "PANIC!" ----------
-// Big letters are the pixel font at 4x, except M which has its own hand-drawn
-// 12x20 shape with proper diagonal strokes (the 3x5 font's M is just a block).
+// ---------- Title logo: candy cane "XMAS" over a shaking "PANIC!" ----------
+// Big letters are the pixel font at 4x, except S, X and M which have their own hand-drawn
+// 12x20 shapes with proper diagonal strokes (the 3x5 font's versions are just blocks).
 const LOGO_GLYPHS = {
+  S: [
+    '.11111111111',
+    '111111111111',
+    '111.........',
+    '111.........',
+    '111.........',
+    '111.........',
+    '111.........',
+    '111.........',
+    '1111111111..',
+    '.1111111111.',
+    '..1111111111',
+    '.........111',
+    '.........111',
+    '.........111',
+    '.........111',
+    '.........111',
+    '.........111',
+    '.........111',
+    '111111111111',
+    '11111111111.',
+  ],
+  X: [
+    '111......111',
+    '111......111',
+    '1111....1111',
+    '.111....111.',
+    '.1111..1111.',
+    '..111..111..',
+    '..11111111..',
+    '...111111...',
+    '....1111....',
+    '....1111....',
+    '....1111....',
+    '....1111....',
+    '...111111...',
+    '..11111111..',
+    '..111..111..',
+    '.1111..1111.',
+    '.111....111.',
+    '1111....1111',
+    '111......111',
+    '111......111',
+  ],
   M: [
     '111......111',
     '1111....1111',
@@ -1196,8 +1240,8 @@ function drawLogo(y0) {
   });
 }
 function drawLogoTop(oy) {   // oy = y0 - 8; the logo was designed with the snow caps starting at y = 8
-  // CRIMBO: red and white candy-cane stripes
-  const top = logoWord('CRIMBO', 26, oy + 10, 4);
+  // XMAS: red and white candy-cane stripes (4 letters, centred)
+  const top = logoWord('XMAS', 42, oy + 10, 4);
   logoOutline(top, '#3a0a12');
   top.forEach(p => rect(((p.x + p.y) % 6 < 3) ? '#d62839' : '#ffffff', p.x, p.y, 1, 1));
   // snow settled on top of every letter, with the odd drip
@@ -1209,9 +1253,9 @@ function drawLogoTop(oy) {   // oy = y0 - 8; the logo was designed with the snow
     if ((x * 7) % 11 === 0) rect('#ffffff', x, y + 1, 1, 2);
   });
   // holly sprig
-  rect('#1b6b2c', 14, oy + 8, 4, 3); rect('#2e9e44', 15, oy + 7, 2, 5);
-  rect('#1b6b2c', 19, oy + 10, 3, 4); rect('#2e9e44', 20, oy + 9, 1, 6);
-  rect('#e23b3b', 17, oy + 11, 2, 2); rect('#ff4d4d', 19, oy + 13, 2, 2); rect('#e23b3b', 16, oy + 13, 2, 2);
+  rect('#1b6b2c', 30, oy + 8, 4, 3); rect('#2e9e44', 31, oy + 7, 2, 5);   // holly sprig, just before the X
+  rect('#1b6b2c', 35, oy + 10, 3, 4); rect('#2e9e44', 36, oy + 9, 1, 6);
+  rect('#e23b3b', 33, oy + 11, 2, 2); rect('#ff4d4d', 35, oy + 13, 2, 2); rect('#e23b3b', 32, oy + 13, 2, 2);
 }
 
 // Draw the game shifted down by OY (0 on normal screens) and fill the extra sky above it

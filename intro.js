@@ -1,4 +1,4 @@
-// Crimbo Panic intro movie: six pixel-art scenes with typewriter dialogue, in the
+// Xmas Panic intro movie: six pixel-art scenes with typewriter dialogue, in the
 // style of old console game intros. Self-contained: create one with a canvas 2D
 // context, then call update() 60 times a second and draw() every frame.
 //

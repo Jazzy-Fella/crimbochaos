@@ -1,4 +1,4 @@
-// Crimbo Panic offline support (a service worker).
+// Xmas Panic offline support (a service worker).
 // Keeps a copy of the game on the phone so it opens and plays with no signal.
 // With signal, the game files are always fetched fresh (so updates show up straight
 // away) and the saved copy is refreshed; with no signal, the saved copy is used.
