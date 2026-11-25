@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '3.2'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '3.3'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -275,7 +275,8 @@ let scrollX = 0, smoke = [], speed = 1.0;
 // the controls change: hold to rise, let go to sink. A stream of bonus presents comes at
 // him. In the last second the rockets sputter; when they cut out he gets a hop and two
 // air jumps so he can always land safely.
-const ROCKET_TIME = 300;                   // frames (5 s)
+const ROCKET_TIME = 360;                   // frames (6 s)
+const ROCKET_LAND = 40;                    // the last 2/3 s: the rockets steer Santa down onto a chimney
 // ---------- Icy roofs and chimney fires ----------
 // Ice: land on it and Santa skids forward, unable to stop, so jump off quickly; he drifts
 // back to his usual spot once he's off. Fire: the chimney smokes, flickers as a warning,
@@ -365,10 +366,10 @@ function reset() {
 
 // Keep generating chimneys ahead of the player
 // ---------- Difficulty progression ----------
-// 0 at the start, rising to 1 after FULL_DIFFICULTY pixels travelled (roughly 90 seconds).
+// 0 at the start, rising to 1 after FULL_DIFFICULTY pixels travelled (roughly 2 minutes).
 // Early on: slow, wide chimneys packed close together, gentle height changes, no birds.
 // Later: faster, narrower chimneys with bigger gaps, bigger height changes, more birds.
-const FULL_DIFFICULTY = 9000;
+const FULL_DIFFICULTY = 12000;
 const lerp = (a, b, t) => a + (b - a) * t;
 const difficulty = () => Math.min(1, dist / FULL_DIFFICULTY);
 
@@ -389,7 +390,7 @@ function fillPlatforms() {
     }
     if (last.fire) type = 'plain';  // straight after a fire chimney: always a plain one
     const fire = type === 'fire';
-    let gap = Math.round(rnd(lerp(8, 30, d), lerp(18, 58, d)) * (easy ? 0.8 : 1));
+    let gap = Math.round(rnd(lerp(8, 26, d), lerp(18, 50, d)) * (easy ? 0.8 : 1));
     let w = Math.round(rnd(lerp(30, 18, d), lerp(42, 28, d))) + (easy ? 4 : 0);
     const rise = lerp(10, 26, d), drop = lerp(12, 34, d);
     let top = Math.max(115, Math.min(215, last.top + rnd(-rise, drop)));
@@ -765,6 +766,15 @@ addEventListener('pointerdown', e => {
 // Phones only allow sound to start when a finger lifts (not when it lands), so
 // also try to start the audio then.
 ['pointerup', 'touchend', 'click'].forEach(ev => addEventListener(ev, () => initAudio()));
+// iPhone: quick double taps would zoom or bring up the magnifier. Cancel the second tap's
+// touch (the game still sees it as a jump, through pointerdown) and any zoom gestures.
+let lastTouchEnd = 0;
+addEventListener('touchend', () => { lastTouchEnd = Date.now(); }, { passive: true });
+addEventListener('touchstart', e => {
+  if (e.touches.length > 1 || Date.now() - lastTouchEnd < 500) e.preventDefault();
+}, { passive: false });
+['dblclick', 'gesturestart', 'gesturechange', 'selectstart', 'contextmenu'].forEach(ev =>
+  addEventListener(ev, e => e.preventDefault(), { passive: false }));
 addEventListener('contextmenu', e => e.preventDefault()); // no long-press menu
 // Pause the music when the player switches app or locks the phone
 document.addEventListener('visibilitychange', () => {
@@ -876,7 +886,7 @@ function update() {
 
   // speed ramps up slowly the further you go
   dist += speed;                     // difficulty follows normal speed, not rocket boost
-  speed = lerp(1.0, 2.1, difficulty());
+  speed = lerp(1.0, 1.9, difficulty());
   if (rocket) {                      // ease up to 1.8x, and back down as the rockets die
     rocket.t++;
     boost = 1 + 0.8 * Math.max(0, Math.min(1, rocket.t / 20, (ROCKET_TIME - rocket.t) / 30));
@@ -952,11 +962,16 @@ function update() {
   const box = { x: left, y: santa.y + 2, w: right - left, h: 10 };
   for (const b of birds) {
     if (b.stomped) continue;
-    // Just landed (less than LAND_GRACE frames ago, too soon to react)? A robin about to
-    // fly into Santa flutters up over his head instead. Any later and it's on you to jump.
-    if (!b.hopped && santa.onPlat && playFrames - santa.landedAt < LAND_GRACE && b.x < right + 6 && b.x + 9 > left) {
-      const sy = santa.y + 2, ry = robinY(b);
-      if (sy < ry + 9 && sy + 10 > ry) { b.hop = 1; b.hopped = true; sfx.hop(); }
+    // Coming in to land (dropping onto a chimney just below) or just landed (less than
+    // LAND_GRACE frames ago)? Too soon to react, so a robin about to fly into Santa
+    // flutters up over his head instead. Standing around longer, it's on you to jump.
+    if (!b.hopped && b.x < right + 6 && b.x + 9 > left - 4) {
+      const sy = santa.y + 2, ry = robinY(b), feet = santa.y + 13;
+      const below = platforms.find(p => left < p.x + p.w && right > p.x && p.top >= feet - 1);
+      const landing = santa.onPlat ? playFrames - santa.landedAt < LAND_GRACE
+        : santa.vy > -1 && below && below.top - feet < 20;
+      // (not if he's coming down on top of it: that's a stomp)
+      if (landing && feet > ry + 5 && sy < ry + 9 && sy + 10 > ry) { b.hop = 1; b.hopped = true; sfx.hop(); }
     }
     if (b.hop) continue;
     const by = robinY(b);
@@ -999,14 +1014,14 @@ function startRocket() {
 
 // One frame of rocket flight: hold to rise, let go to sink, invincible
 function rocketStep() {
-  const ending = rocket.t > ROCKET_TIME - 60;
-  // In the last second the rockets take over: they glide Santa down to just above the next
+  const ending = rocket.t > ROCKET_TIME - ROCKET_LAND;
+  // In the last moments the rockets take over: they glide Santa down to just above the next
   // safe chimney (not burning or icy) and only cut out once he's over it, so he always lands.
   // (not over the last few pixels of a chimney, so there's room to land and then jump)
   const target = ending ? platforms.find(p => !p.fire && !p.ice && p.x + p.w - 9 > santa.x + 12) : null;
   if (target) {
     const hoverY = target.top - 16;
-    santa.vy = Math.max(-5, Math.min(5, (hoverY - santa.y) * 0.3));   // quick enough to catch fast chimneys
+    santa.vy = Math.max(-6, Math.min(6, (hoverY - santa.y) * 0.4));   // quick enough to catch fast chimneys
   } else {
     const firing = holding && !(ending && (rocket.t >> 2) % 3 === 0);   // sputters near the end
     santa.vy = Math.max(-3, Math.min(3, santa.vy + (firing ? -0.42 : 0.28)));
@@ -1022,7 +1037,7 @@ function rocketStep() {
   });
   if (frame % 6 === 0) sfx.rocketRumble(ending);
   // a stream of bonus presents to steer into
-  if (!ending && rocket.t % 18 === 0) gifts.push({ x: W + 4, y: 30 + Math.random() * 140, got: false, look: Math.floor(Math.random() * presents.length) });
+  if (!ending && rocket.t % 12 === 0) gifts.push({ x: W + 4, y: 30 + Math.random() * 140, got: false, look: Math.floor(Math.random() * presents.length) });
   // birds just bounce off
   const box = { x: santa.x + 3, y: santa.y + 2, w: 21, h: 10 };
   birds.forEach(b => {
@@ -1478,7 +1493,7 @@ function drawScene() {
   ctx.rotate(Math.round(ang * 8) / 8);
   if (rocket) {
     // two rockets strapped to the back, with flickering flames
-    const ending = rocket.t > ROCKET_TIME - 60, lit = !ending || (rocket.t >> 2) % 3 !== 0;
+    const ending = rocket.t > ROCKET_TIME - ROCKET_LAND, lit = !ending || (rocket.t >> 2) % 3 !== 0;
     [[0, '#c7c7c7'], [4, '#b0b0b0']].forEach(([dy, body]) => {
       rect(body, -19, -1 + dy, 8, 3); rect('#d62839', -12, -1 + dy, 2, 3); rect('#7a7a7a', -20, -1 + dy, 1, 3);
       if (lit) { const fl = 3 + ((frame + dy) % 4); rect('#ff9a3c', -20 - fl, dy, fl, 2); rect('#ffe14d', -22, dy, 2, 1); }
