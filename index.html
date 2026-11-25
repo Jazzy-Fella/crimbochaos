@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.5'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.6'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -416,11 +416,74 @@ function fillPlatforms() {
       // now and then (after the first 10 s, one at a time, not during a rocket run) a super present
       super: !rocket && playFrames > 600 && !gifts.some(g => g.super && !g.got) && Math.random() < 0.1,
     });
-    // birds start appearing after a while, then get more common
-    if (d > 0.15 && w >= 20 && !fire && Math.random() < lerp(0.08, 0.3, (d - 0.15) / 0.85))
-      birds.push({ x: p.x + p.w, y: top - 9, t: Math.random() * 60 });
+    // birds start appearing after a while, then get more common. A robin is decided one
+    // chimney late (once the chimney after it exists) so the fairness check below can see
+    // where Santa will be when it reaches him, and what he could jump to.
+    if (d > 0.15 && last.w >= 20 && !last.fire && Math.random() < lerp(0.1, 0.36, (d - 0.15) / 0.85))
+      tryBird(last, p);
     platforms.push(p);
     last = p;
+  }
+}
+// ---------- Fair robins ----------
+// A robin flies in faster than the chimneys. It's timed to reach Santa while he's on a
+// particular chimney, at head height for that chimney, so he has to jump over it. Before adding one, play it out: is there a window
+// of at least 6 frames where Santa, standing on that chimney, can jump (and double jump if
+// needed), clear the robin and land safely on that chimney or the next one? If not (say the
+// next gap is too wide to reach from where he'd have to take off), no robin.
+function tryBird(M, next) {
+  if (M.ice) return;                                       // skidding on ice too: not fair
+  const v = lerp(0.3, 0.6, difficulty()), sp = speed, t0 = Math.random() * 60;
+  // pick where on this chimney the robin reaches Santa, then start it far enough out
+  // (it's a bit faster than the chimneys) that it gets there at that moment
+  const cx = M.w > 24 ? rnd(M.x + 12, M.x + M.w - 12) : M.x + M.w / 2;   // Santa's middle then
+  const meet = Math.round((cx - SANTA_X - 13) / sp);
+  const bx = Math.round(SANTA_X + 12 + meet * (sp + v));
+  if (bx < W + 4) return;                                  // would pop up on screen
+  const y = M.top - 9;
+  if (fairBird(M, next, bx, y, t0, v, sp, meet)) birds.push({ x: bx, y, t: t0 });
+}
+function fairBird(M, next, bx, by, t0, v, sp, meet) {
+  const k = Math.sqrt(sp), g = GRAV * k * k, cap = 6 * k, plats = next ? [M, next] : [M];
+  const hits = (n, y) => {                                 // Santa (box at y) touching the robin on frame n?
+    const x = bx - (sp + v) * n, ry = by + Math.sin((t0 + n) / 12) * 2;
+    return SANTA_X + 3 < x + 9 && SANTA_X + 24 > x + 1 && y + 2 < ry + 7 && y + 12 > ry + 2;
+  };
+  const onM = n => { const l = SANTA_X + 3 + sp * n; return l < M.x + M.w && l + 21 > M.x; };
+  const stand = M.top - 13;
+  let window = 0, bestWindow = 0;
+  for (let J = meet - 50; J <= meet + 12; J++) {
+    let ok = false;
+    if (J > 0 && onM(J)) {
+      // standing on M until the jump: the robin mustn't reach him first
+      let safe = true;
+      for (let n = J - 1; n >= Math.max(0, J - 60) && onM(n); n--) if (hits(n, stand)) { safe = false; break; }
+      if (safe) for (let dj = 0; dj <= 44 && !ok; dj += dj ? 2 : 4) ok = flight(J, dj);
+    }
+    window = ok ? window + 1 : 0;
+    bestWindow = Math.max(bestWindow, window);
+  }
+  return bestWindow >= 6;
+  // jump on frame J, double jump dj frames later (0 = no double jump): land safely?
+  function flight(J, dj) {
+    let y = stand, vy = JUMP * k;
+    for (let n = J + 1; n < J + 200; n++) {
+      if (dj && n === J + dj) vy = JUMP2 * k;
+      const prev = y + 13;
+      vy = Math.min(vy + g, cap); y += vy;
+      if (hits(n, y)) return false;
+      const l = SANTA_X + 3 + sp * n, r = l + 21;
+      for (const q of plats) {
+        if (l >= q.x + q.w || r <= q.x) continue;
+        if (vy >= 0 && prev <= q.top + 1 && y + 13 >= q.top) {
+          // landed: fine once the robin has gone past
+          return bx - (sp + v) * n + 9 < SANTA_X + 3;
+        }
+        if (y + 13 > q.top + 2) return false;              // hit the side of a chimney
+      }
+      if (y > 300) return false;                           // fell
+    }
+    return false;
   }
 }
 reset();
