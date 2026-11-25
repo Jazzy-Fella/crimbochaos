@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '3.3'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '3.4'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -1052,6 +1052,7 @@ function rocketStep() {
       if (score >= ENDING_AT) startEnding();
     }
   });
+  if (!rocket) return;   // that was the 100th present: the ending has started (and switched the rockets off)
   // time's up and he's over a safe chimney: cut out (the rockets keep going until he is)
   const centre = santa.x + 12;
   const over = target && centre > target.x + 2 && centre < target.x + target.w - 9 && Math.abs(santa.y - (target.top - 16)) < 8;
