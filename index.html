@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.4'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.5'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -449,12 +449,14 @@ function burst(x, y, n, c, spd = 1, life = 20) {
 // Little chiptune blips made on the fly with Web Audio, so there are no sound files.
 // Browsers only allow sound after the player taps or presses a key, so the audio
 // starts on the first jump() call.
-let audio = null;
+let audio = null, sfxOut = null;   // sfxOut: all sound effects go through this, at FX_VOLUME
 
 // Background music: loops quietly under the sound effects. Press M to mute/unmute.
 // Background music loops quietly under the sound effects; press M to mute/unmute.
 // It is created on the first tap/keypress because browsers block sound before then.
-const MUSIC_FILE = 'audio/music.mp3';
+// The track itself is stored at a tenth of its original volume (audio/music.m4a), so it's
+// quiet on every phone even where the volume control below is ignored.
+const MUSIC_FILE = 'audio/music.m4a';
 let music = null, musicMuted = false, fxMuted = false;
 // Remember the player's Music / FX choices between visits
 try { musicMuted = localStorage.getItem('crimboMusicOff') === '1'; fxMuted = localStorage.getItem('crimboFxOff') === '1'; } catch {}
@@ -481,7 +483,8 @@ function toggleFx() { fxMuted = !fxMuted; saveSound(); }
 
 // iPhones ignore a page's volume setting for <audio> (it always plays at full volume),
 // so the music is routed through Web Audio with a gain node, which phones do respect.
-const MUSIC_VOLUME = 0.08;
+const MUSIC_VOLUME = 0.4;              // on top of the quieter file: about 4% of the original
+const FX_VOLUME = 0.7;                 // overall level for all sound effects
 let musicGain = null;
 function routeMusic() {
   if (musicGain || !music || !audio) return;
@@ -518,6 +521,7 @@ function initAudio() {
   } else if (musicOn && !musicMuted && music.paused) music.play().catch(() => {});
   if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; } }
   if (audio.state === 'suspended') audio.resume();
+  if (!sfxOut) { sfxOut = audio.createGain(); sfxOut.gain.value = FX_VOLUME; sfxOut.connect(audio.destination); }
   routeMusic();
 }
 
@@ -541,7 +545,7 @@ function tone({ type = 'square', f0, f1, dur, vol = 0.08, delay = 0 }) {
   if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(audio.destination);
+  o.connect(g).connect(sfxOut || audio.destination);
   o.start(t); o.stop(t + dur + 0.02);
 }
 // Filtered white noise, for thuds, crunches, cheers, whooshes and crashes
@@ -561,7 +565,7 @@ function noise({ dur, vol = 0.1, f = 1000, f1, type = 'lowpass', delay = 0 }) {
   if (f1) flt.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(flt).connect(g).connect(audio.destination);
+  src.connect(flt).connect(g).connect(sfxOut || audio.destination);
   src.start(t); src.stop(t + dur + 0.05);
 }
 const sfx = {

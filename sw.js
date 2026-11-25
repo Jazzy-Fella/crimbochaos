@@ -4,13 +4,13 @@
 // away) and the saved copy is refreshed; with no signal, the saved copy is used.
 // The music is big and never changes, so it always comes from the saved copy.
 // Bump VERSION when files are added, removed or renamed below.
-const VERSION = 'crimbo-panic-v2';
+const VERSION = 'crimbo-panic-v3';
 const FILES = [
   './',
   'index.html',
   'intro.js',
   'manifest.json',
-  'audio/music.mp3',
+  'audio/music.m4a',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -35,7 +35,7 @@ self.addEventListener('fetch', e => {
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const saved = await cache.match(req, { ignoreSearch: true });
-    if (saved && /\.mp3$/.test(new URL(req.url).pathname)) return saved;
+    if (saved && /\.(mp3|m4a)$/.test(new URL(req.url).pathname)) return saved;
     try {
       // fresh copy, skipping the browser's own cache; give up after 4 s on a bad signal
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
@@ -63,7 +63,7 @@ async function rangeResponse(req) {
   return new Response(buf.slice(start, end + 1), {
     status: 206,
     headers: {
-      'Content-Type': saved.headers.get('Content-Type') || 'audio/mpeg',
+      'Content-Type': saved.headers.get('Content-Type') || 'audio/mp4',
       'Content-Range': `bytes ${start}-${end}/${buf.byteLength}`,
       'Content-Length': String(end - start + 1),
       'Accept-Ranges': 'bytes',
