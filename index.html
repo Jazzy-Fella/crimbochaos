@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '3.1'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '3.2'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -964,7 +964,7 @@ function update() {
     if (box.x + 3 < b.x + 9 && box.x + box.w - 3 > b.x + 1 && box.y + 1 < by + 7 && box.y + box.h - 1 > by + 2) {
       // Coming down on top of a robin: stomp it. Santa bounces up like a fresh jump
       // and gets his double jump back. Hitting one any other way is still a crash.
-      if (santa.vy > 0 && prevFeet <= by + 3) {
+      if (santa.vy > 0 && prevFeet <= by + 5) {   // feet were above its middle
         b.stomped = true; b.vy = -1;
         santa.vy = JUMP * k; santa.jumps = 1; santa.grounded = 0; santa.buffer = 0;
         burst(b.x + 5, by + 4, 10, '#7a4a24', 1.2, 30);
