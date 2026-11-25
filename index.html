@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '3.0'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '3.1'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -419,7 +419,9 @@ function fillPlatforms() {
     // birds start appearing after a while, then get more common. A robin is decided one
     // chimney late (once the chimney after it exists) so the fairness check below can see
     // where Santa will be when it reaches him, and what he could jump to.
-    if (d > 0.15 && last.w >= 20 && !last.fire && Math.random() < lerp(0.1, 0.36, (d - 0.15) / 0.85))
+    // Fewer than before: about 1 chimney in 8 at most, and never within 3 chimneys of another.
+    if (d > 0.15 && last.w >= 20 && !last.fire && !platforms.slice(-4, -1).some(q => q.robin)
+        && Math.random() < lerp(0.08, 0.26, (d - 0.15) / 0.85))
       tryBird(last, p);
     platforms.push(p);
     last = p;
@@ -433,7 +435,7 @@ function fillPlatforms() {
 // next gap is too wide to reach from where he'd have to take off), no robin.
 function tryBird(M, next) {
   if (M.ice) return;                                       // skidding on ice too: not fair
-  const v = lerp(0.3, 0.6, difficulty()), sp = speed, t0 = Math.random() * 60;
+  const v = robinDrift(), sp = speed, t0 = Math.random() * 60;
   // pick where on this chimney the robin reaches Santa, then start it far enough out
   // (it's a bit faster than the chimneys) that it gets there at that moment
   const cx = M.w > 24 ? rnd(M.x + 12, M.x + M.w - 12) : M.x + M.w / 2;   // Santa's middle then
@@ -441,8 +443,10 @@ function tryBird(M, next) {
   const bx = Math.round(SANTA_X + 12 + meet * (sp + v));
   if (bx < W + 4) return;                                  // would pop up on screen
   const y = M.top - 9;
-  if (fairBird(M, next, bx, y, t0, v, sp, meet)) birds.push({ x: bx, y, t: t0 });
+  if (fairBird(M, next, bx, y, t0, v, sp, meet)) { birds.push({ x: bx, y, t: t0 }); M.robin = true; }
 }
+// How much faster than the chimneys robins fly (kept gentle so they're easy to read)
+const robinDrift = () => lerp(0.15, 0.35, difficulty());
 function fairBird(M, next, bx, by, t0, v, sp, meet) {
   const k = Math.sqrt(sp), g = GRAV * k * k, cap = 6 * k, plats = next ? [M, next] : [M];
   const hits = (n, y) => {                                 // Santa (box at y) touching the robin on frame n?
@@ -494,7 +498,7 @@ if (window.CrimboIntro) state = 'splash';
 // Save 100 presents and the run ends with the ending movie (Santa gets home... and gets nicked)
 const ENDING_AT = 100;
 // Robins: a short grace after each landing, and the little hop they do to use it
-const LAND_GRACE = 24, ROBIN_HOP = 36;
+const LAND_GRACE = 40, ROBIN_HOP = 36;
 const robinY = b => b.y + (b.stomped ? 0 : Math.sin(b.t / 12) * 2)
   - (b.hop ? Math.round(18 * Math.sin(Math.PI * b.hop / ROBIN_HOP)) : 0);
 let endingT = 0;
@@ -882,7 +886,7 @@ function update() {
   platforms.forEach(p => p.x -= move);
   gifts.forEach(g => g.x -= move);
   birds.forEach(b => {
-    b.x -= move + lerp(0.3, 0.6, difficulty()); b.t++;
+    b.x -= move + robinDrift(); b.t++;
     if (b.stomped) { b.vy += 0.25; b.y += b.vy; }   // stomped: tumbles out of the sky
     if (b.hop) b.hop = b.hop >= ROBIN_HOP ? 0 : b.hop + 1;
     if (!b.seen && b.x < W) { b.seen = true; sfx.bird(); } // tweet as it flies on screen
@@ -956,7 +960,8 @@ function update() {
     }
     if (b.hop) continue;
     const by = robinY(b);
-    if (box.x < b.x + 9 && box.x + box.w > b.x + 1 && box.y < by + 7 && box.y + box.h > by + 2) {
+    // a forgiving hit area: Santa's body, not the tips of the sleigh and reins
+    if (box.x + 3 < b.x + 9 && box.x + box.w - 3 > b.x + 1 && box.y + 1 < by + 7 && box.y + box.h - 1 > by + 2) {
       // Coming down on top of a robin: stomp it. Santa bounces up like a fresh jump
       // and gets his double jump back. Hitting one any other way is still a crash.
       if (santa.vy > 0 && prevFeet <= by + 3) {
@@ -1568,7 +1573,7 @@ function loop(now) {
   while (acc >= STEP) { update(); acc -= STEP; }
   const alpha = acc / STEP;
   ox = state === 'play' ? move * alpha : 0;
-  birdFactor = state === 'play' ? (move + lerp(0.3, 0.6, difficulty())) / move : 1;
+  birdFactor = state === 'play' ? (move + robinDrift()) / move : 1;
   draw();
   requestAnimationFrame(loop);
 }
