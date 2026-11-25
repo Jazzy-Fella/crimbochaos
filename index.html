@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.9'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '3.0'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -416,32 +416,75 @@ function fillPlatforms() {
       // now and then (after the first 10 s, one at a time, not during a rocket run) a super present
       super: !rocket && playFrames > 600 && !gifts.some(g => g.super && !g.got) && Math.random() < 0.1,
     });
-    // birds start appearing after a while, then get more common. They fly above head
-    // height, following the rooftops, so landing on a chimney is always safe from them.
-    if (d > 0.15 && w >= 20 && !fire && Math.random() < lerp(0.08, 0.3, (d - 0.15) / 0.85))
-      birds.push({ x: p.x + p.w, y: top - ROBIN_ALT, t: Math.random() * 60 });
+    // birds start appearing after a while, then get more common. A robin is decided one
+    // chimney late (once the chimney after it exists) so the fairness check below can see
+    // where Santa will be when it reaches him, and what he could jump to.
+    if (d > 0.15 && last.w >= 20 && !last.fire && Math.random() < lerp(0.1, 0.36, (d - 0.15) / 0.85))
+      tryBird(last, p);
     platforms.push(p);
     last = p;
   }
 }
-// ---------- Robins ----------
-// Robins fly ROBIN_ALT pixels above the rooftops (gliding up and down to follow them),
-// clear of a standing Santa's head but right where his jumps go. Land on one from above
-// to stomp it (a bounce and your double jump back); bump one from underneath and it
-// knocks you back down; fly into one side-on and it's a crash.
-const ROBIN_ALT = 30;
-function roofAt(x) {                       // rooftop height under x (blended across gaps)
-  for (let i = 0; i < platforms.length; i++) {
-    const p = platforms[i];
-    if (x < p.x) {
-      const q = platforms[i - 1];
-      if (!q) return p.top;
-      const t = Math.max(0, Math.min(1, (x - (q.x + q.w)) / Math.max(1, p.x - (q.x + q.w))));
-      return lerp(q.top, p.top, t);
+// ---------- Fair robins ----------
+// A robin flies in faster than the chimneys. It's timed to reach Santa while he's on a
+// particular chimney, at head height for that chimney, so he has to jump over it. Before adding one, play it out: is there a window
+// of at least 6 frames where Santa, standing on that chimney, can jump (and double jump if
+// needed), clear the robin and land safely on that chimney or the next one? If not (say the
+// next gap is too wide to reach from where he'd have to take off), no robin.
+function tryBird(M, next) {
+  if (M.ice) return;                                       // skidding on ice too: not fair
+  const v = lerp(0.3, 0.6, difficulty()), sp = speed, t0 = Math.random() * 60;
+  // pick where on this chimney the robin reaches Santa, then start it far enough out
+  // (it's a bit faster than the chimneys) that it gets there at that moment
+  const cx = M.w > 24 ? rnd(M.x + 12, M.x + M.w - 12) : M.x + M.w / 2;   // Santa's middle then
+  const meet = Math.round((cx - SANTA_X - 13) / sp);
+  const bx = Math.round(SANTA_X + 12 + meet * (sp + v));
+  if (bx < W + 4) return;                                  // would pop up on screen
+  const y = M.top - 9;
+  if (fairBird(M, next, bx, y, t0, v, sp, meet)) birds.push({ x: bx, y, t: t0 });
+}
+function fairBird(M, next, bx, by, t0, v, sp, meet) {
+  const k = Math.sqrt(sp), g = GRAV * k * k, cap = 6 * k, plats = next ? [M, next] : [M];
+  const hits = (n, y) => {                                 // Santa (box at y) touching the robin on frame n?
+    const x = bx - (sp + v) * n, ry = by + Math.sin((t0 + n) / 12) * 2;
+    return SANTA_X + 3 < x + 9 && SANTA_X + 24 > x + 1 && y + 2 < ry + 7 && y + 12 > ry + 2;
+  };
+  const onM = n => { const l = SANTA_X + 3 + sp * n; return l < M.x + M.w && l + 21 > M.x; };
+  const stand = M.top - 13;
+  let window = 0, bestWindow = 0;
+  for (let J = meet - 50; J <= meet + 12; J++) {
+    let ok = false;
+    if (J > 0 && onM(J)) {
+      // standing on M until the jump: the robin mustn't reach him first
+      let safe = true;
+      for (let n = J - 1; n >= Math.max(0, J - 60) && onM(n); n--) if (hits(n, stand)) { safe = false; break; }
+      if (safe) for (let dj = 0; dj <= 44 && !ok; dj += dj ? 2 : 4) ok = flight(J, dj);
     }
-    if (x < p.x + p.w) return p.top;
+    window = ok ? window + 1 : 0;
+    bestWindow = Math.max(bestWindow, window);
   }
-  return platforms[platforms.length - 1].top;
+  return bestWindow >= 6;
+  // jump on frame J, double jump dj frames later (0 = no double jump): land safely?
+  function flight(J, dj) {
+    let y = stand, vy = JUMP * k;
+    for (let n = J + 1; n < J + 200; n++) {
+      if (dj && n === J + dj) vy = JUMP2 * k;
+      const prev = y + 13;
+      vy = Math.min(vy + g, cap); y += vy;
+      if (hits(n, y)) return false;
+      const l = SANTA_X + 3 + sp * n, r = l + 21;
+      for (const q of plats) {
+        if (l >= q.x + q.w || r <= q.x) continue;
+        if (vy >= 0 && prev <= q.top + 1 && y + 13 >= q.top) {
+          // landed: fine once the robin has gone past
+          return bx - (sp + v) * n + 9 < SANTA_X + 3;
+        }
+        if (y + 13 > q.top + 2) return false;              // hit the side of a chimney
+      }
+      if (y > 300) return false;                           // fell
+    }
+    return false;
+  }
 }
 reset();
 // The game opens on a "tap to start" screen (that first tap is what lets phones play
@@ -450,6 +493,10 @@ let intro = null;
 if (window.CrimboIntro) state = 'splash';
 // Save 100 presents and the run ends with the ending movie (Santa gets home... and gets nicked)
 const ENDING_AT = 100;
+// Robins: a short grace after each landing, and the little hop they do to use it
+const LAND_GRACE = 24, ROBIN_HOP = 36;
+const robinY = b => b.y + (b.stomped ? 0 : Math.sin(b.t / 12) * 2)
+  - (b.hop ? Math.round(18 * Math.sin(Math.PI * b.hop / ROBIN_HOP)) : 0);
 let endingT = 0;
 function startEnding() {
   if (state !== 'play' || !window.CrimboIntro || endless) return;   // Endless mode never ends
@@ -612,6 +659,7 @@ const sfx = {
   skid()    { noise({ dur: 0.08, vol: 0.04, f: 5000, type: 'highpass' }); },               // skidding on ice
   flare()   { noise({ dur: 0.5, vol: 0.12, f: 200, f1: 900, type: 'lowpass' }); },        // whoomph
   burn()    { noise({ dur: 0.4, vol: 0.15, f: 3000, type: 'highpass' }); tone({ f0: 300, f1: 900, dur: 0.15, vol: 0.05 }); }, // sizzle
+  hop() { tone({ f0: 1800, f1: 2600, dur: 0.05, vol: 0.03 }); tone({ f0: 2000, f1: 2900, dur: 0.05, vol: 0.03, delay: 0.07 }); },   // startled chirp
   stomp() {                          // landing on a robin: a squashy boing and a squeak
     tone({ type: 'square', f0: 220, f1: 660, dur: 0.12, vol: 0.07 });
     tone({ f0: 1400, f1: 900, dur: 0.06, vol: 0.04, delay: 0.04 });
@@ -836,11 +884,7 @@ function update() {
   birds.forEach(b => {
     b.x -= move + lerp(0.3, 0.6, difficulty()); b.t++;
     if (b.stomped) { b.vy += 0.25; b.y += b.vy; }   // stomped: tumbles out of the sky
-    else {                                          // glide along above the rooftops, rising
-      let roof = Infinity;                          // early for any taller chimney just ahead
-      for (let dx = -36; dx <= 12; dx += 6) roof = Math.min(roof, roofAt(b.x + 5 + dx));
-      b.y += (roof - ROBIN_ALT - b.y) * 0.2;
-    }
+    if (b.hop) b.hop = b.hop >= ROBIN_HOP ? 0 : b.hop + 1;
     if (!b.seen && b.x < W) { b.seen = true; sfx.bird(); } // tweet as it flies on screen
   });
   birds = birds.filter(b => b.x > -12 && b.y < H + 20);
@@ -863,7 +907,7 @@ function update() {
       // landed on top
       santa.y = p.top - 13; santa.vy = 0; onPlat = true;
       if (p.ice) { if (santa.grounded <= 0) sfx.iceLand(); onIce = true; }
-      if (santa.grounded <= 0) burst(santa.x + 12, p.top, 6, '#ffffff', 0.8, 15);
+      if (santa.grounded <= 0) { burst(santa.x + 12, p.top, 6, '#ffffff', 0.8, 15); santa.landedAt = playFrames; }
       p.landed = true;
     } else if (feet > p.top + 2) {
       die('CRASH!');                               // ran into the side of a chimney
@@ -904,7 +948,14 @@ function update() {
   const box = { x: left, y: santa.y + 2, w: right - left, h: 10 };
   for (const b of birds) {
     if (b.stomped) continue;
-    const by = b.y + Math.sin(b.t / 12) * 2;
+    // Just landed (less than LAND_GRACE frames ago, too soon to react)? A robin about to
+    // fly into Santa flutters up over his head instead. Any later and it's on you to jump.
+    if (!b.hopped && santa.onPlat && playFrames - santa.landedAt < LAND_GRACE && b.x < right + 6 && b.x + 9 > left) {
+      const sy = santa.y + 2, ry = robinY(b);
+      if (sy < ry + 9 && sy + 10 > ry) { b.hop = 1; b.hopped = true; sfx.hop(); }
+    }
+    if (b.hop) continue;
+    const by = robinY(b);
     if (box.x < b.x + 9 && box.x + box.w > b.x + 1 && box.y < by + 7 && box.y + box.h > by + 2) {
       // Coming down on top of a robin: stomp it. Santa bounces up like a fresh jump
       // and gets his double jump back. Hitting one any other way is still a crash.
@@ -913,14 +964,6 @@ function update() {
         santa.vy = JUMP * k; santa.jumps = 1; santa.grounded = 0; santa.buffer = 0;
         burst(b.x + 5, by + 4, 10, '#7a4a24', 1.2, 30);
         sfx.stomp();
-        continue;
-      }
-      // Jumping up into one from underneath: it gets knocked away and so does your jump
-      if (santa.vy < 0 && prevFeet - 13 >= by + 3) {
-        b.stomped = true; b.vy = -2;
-        santa.vy = 1;
-        burst(b.x + 5, by + 6, 8, '#7a4a24', 1.0, 25);
-        sfx.bonk();
         continue;
       }
       burst(b.x + 5, by + 4, 10, '#7a4a24', 1.2, 30);
@@ -1407,7 +1450,7 @@ function drawScene() {
   });
   if (bl > 0) drawBlizzard(bl);   // birds, presents and Santa stay in front of the storm
   birds.forEach(b => {
-    const bx = Math.round(b.x - ox * birdFactor), by = Math.round(b.y + (b.stomped ? 0 : Math.sin(b.t / 12) * 2));
+    const bx = Math.round(b.x - ox * birdFactor), by = Math.round(robinY(b));
     if (!b.stomped) { ctx.drawImage(Math.floor(b.t / 6) % 2 ? birdA : birdB, bx, by); return; }
     ctx.save(); ctx.translate(bx, by + 9); ctx.scale(1, -1); ctx.drawImage(birdA, 0, 0); ctx.restore();   // upside down, falling
   });
