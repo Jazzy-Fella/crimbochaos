@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.3'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.4'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -492,7 +492,17 @@ function routeMusic() {
     music.volume = 1;                     // the gain node does the turning down now
   } catch { music.volume = MUSIC_VOLUME; }
 }
+// iPhone silent switch: once a page plays music through a media element, iOS treats the
+// whole page like a music app and ignores the silent switch, for the music AND the sound
+// effects. Marking the page's sound as "ambient" (game-style sound, iOS 16.4+) makes it
+// respect the silent switch again, and lets it mix with podcasts/music instead of stopping them.
+function useAmbientSound() {
+  try { if (navigator.audioSession && navigator.audioSession.type !== 'ambient') navigator.audioSession.type = 'ambient'; } catch {}
+}
+useAmbientSound();
+
 function initAudio() {
+  useAmbientSound();
   keepAwake();
   if (!music) {
     music = new Audio(MUSIC_FILE);
