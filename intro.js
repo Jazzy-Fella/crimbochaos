@@ -5,6 +5,7 @@
 //   const intro = CrimboIntro.create(ctx, { tone, noise }); // sound makers optional
 //   intro.update(); intro.draw(W, H);   // W must be 144, H 256 or taller
 //   intro.next();                       // jump to the next scene
+//   CrimboIntro.create(ctx, sound, 'ending')  // the ending movie instead (reaching 100 presents)
 //   intro.done                          // true once the last scene has finished
 (function () {
   // ---------- Pixel helpers ----------
@@ -42,7 +43,7 @@
     U:'101101101101111',V:'101101101101010',W:'101101111111101',X:'101101010101101',
     Y:'101101010010010',Z:'111001010100111',' ':'000000000000000','!':'010010010000010',
     "'":'010010000000000',',':'000000000010100','.':'000000000000010','*':'101010101000000',
-    '?':'111001010000010','-':'000000111000000',':':'000010000010000',
+    '?':'111001010000010','-':'000000111000000',':':'000010000010000','(':'001010010010001',')':'100010010010100',
   };
   function text(str, x, y, col = '#fff', scale = 1, shadow = '#05070f') {
     str = String(str).toUpperCase();
@@ -368,7 +369,7 @@
       },
     },
   ];
-  const WHO_COLS = { SANTA: '#ff6b6b', BARMAN: '#9be29b', CROWD: '#7cc4ef' };
+  const WHO_COLS = { SANTA: '#ff6b6b', BARMAN: '#9be29b', CROWD: '#7cc4ef', OFFICER: '#7cc4ef', CHILD: '#ff9ad5' };
 
   // ---------- Sound effects ----------
   // The game passes in its own tone() and noise() makers (so the Sound FX setting
@@ -410,8 +411,214 @@
       if (t === 190) T({ type: 'triangle', f0: 330, f1: 290, dur: 1.0, vol: 0.1, delay: 1.2 });
     },
   ];
+  SCENES.forEach((S, i) => { S.sfx = SCENE_SFX[i]; });
+
+  // ---------- The ending (reaching 100 presents) ----------
+  // Same player and style as the intro: Santa gets home, gets nicked for drink flying, ends
+  // up in a cell, and Christmas is ruined for every child in town.
+  const officer = sprite([
+    '...KKK....',
+    '..KKKKK...',
+    '..KKHKK...',
+    '.KKKKKKK..',
+    '..SSSS....',
+    '.KSSSS....',
+    '..SSSS....',
+    '.VVVVVV...',
+    'VVVUUVVV..',
+    'VVVUUVVV..',
+    'SVVVVVVS..',
+    '.UUUUUU...',
+    '.UU..UU...',
+    '.UU..UU...',
+    '.UU..UU...',
+    '.KK..KK...',
+    'KKK.KKK...',
+  ], { H: '#d8dde6', V: '#cfe83a', U: '#1d2a4a' });
+  const child = sprite([
+    '..HHHH..',
+    '.HHHHHH.',
+    '.HSSSSH.',
+    '..SKSK..',
+    '..SSSS..',
+    '...SS...',
+    '.PPPPPP.',
+    'PPWPPWPP',
+    'SPPPPPPS',
+    '.PPWPPP.',
+    '.PP..PP.',
+    '.PP..PP.',
+    '.SS..SS.',
+  ], { H: '#7a4a24', P: '#7cc4ef', W: '#ffffff' });
+  const fullSleigh = sprite(SLEIGH);
+  function cottage(t) {          // Santa's house, as in the intro (without Mrs Claus in the window)
+    R('#e8d2a6', 8, 40, 64, 36); R('#d4b98a', 8, 72, 64, 4);
+    for (let k = 0; k <= 18; k++) { const w = 8 + k * 4; R(k < 4 ? '#ffffff' : '#7a2e22', 40 - w / 2, 22 + k, w, 1); R('#ffffff', 40 - w / 2, 22 + k, 2, 1); R('#ffffff', 40 + w / 2 - 2, 22 + k, 2, 1); }
+    R('#8c3b2c', 56, 16, 7, 14); R('#ffffff', 55, 15, 9, 2);
+    R('#6b4a2a', 14, 46, 20, 18); R('#ffd27a', 16, 48, 16, 14); R('#6b4a2a', 23, 48, 2, 14);
+    R('#2a1a10', 46, 52, 12, 24); R('#7a2e22', 47, 53, 10, 23); R('#f7c843', 55, 64, 1, 2);
+    R('#2e7d32', 49, 46, 6, 5); R('#5a3420', 51, 48, 2, 1); R('#d62839', 51, 50, 2, 1);
+  }
+  function policeCar(x, y, t, lit) {   // little white panda car with flashing lights
+    const fx = Math.round(x), fy = Math.round(y), blue = (t >> 3) % 2;
+    if (lit) { C.fillStyle = blue ? 'rgba(60,140,255,0.28)' : 'rgba(255,60,60,0.28)'; C.fillRect(fx - 6, fy - 8, 40, 22); }
+    R('#2f6fd6', fx + 12, fy, 3, 2); R('#d62839', fx + 15, fy, 3, 2);
+    if (lit) R(blue ? '#bfe0ff' : '#ffc0c0', blue ? fx + 12 : fx + 15, fy, 3, 1);
+    R('#f4f6fa', fx + 7, fy + 2, 16, 5); R('#7cc4ef', fx + 9, fy + 3, 5, 3); R('#7cc4ef', fx + 16, fy + 3, 5, 3);
+    R('#f4f6fa', fx, fy + 6, 30, 5); R('#ffe14d', fx, fy + 7, 2, 2);
+    for (let i = 0; i < 30; i += 3) R((i / 3) % 2 ? '#f7c843' : '#2f6fd6', fx + i, fy + 9, 3, 2);
+    R('#1b1b1b', fx + 4, fy + 10, 5, 3); R('#1b1b1b', fx + 21, fy + 10, 5, 3); R('#8a8a8a', fx + 6, fy + 11, 1, 1); R('#8a8a8a', fx + 23, fy + 11, 1, 1);
+  }
+  function bubble(x, y, lines, k) {    // white speech bubble with a tail pointing down
+    const w = Math.max(...lines.map(l => l.length)) * 4 + 3, h = lines.length * 7 + 3;
+    R('#05070f', x - 1, y - 1, w + 2, h + 2); R('#ffffff', x, y, w, h);
+    R('#ffffff', x + 3, y + h, 3, 2); R('#ffffff', x + 3, y + h + 2, 1, 1);
+    lines.forEach((l, i) => text(l, x + 2, y + 2 + i * 7, '#1b1b1b', 1, '#ffffff'));
+  }
+  const ENDING_SCENES = [
+    { // 1. Home just in time, sleigh piled with presents... then a police car pulls up
+      dur: 440, caption: 'CHRISTMAS EVE',
+      lines: [{ at: 70, who: 'SANTA', text: 'Got them all, just in time!' }],
+      draw(t) {
+        sky(t);
+        R('#dfe8f5', 0, 74, 128, 22); R('#ffffff', 0, 74, 128, 2);
+        cottage(t);
+        // sleigh glides in and lands, a sack of presents piled up behind Santa
+        const p = clamp01(t / 70), sx = lerp(-30, 74, 1 - (1 - p) * (1 - p)), sy = lerp(40, 64, p);
+        [[0, 0], [5, 0], [2, -4], [7, -4], [4, -8]].forEach(([dx, dy], k) => present(sx - 3 + dx, sy + 2 + dy, k + 1));
+        C.drawImage(fullSleigh, Math.round(sx), Math.round(sy));
+        // then the police turn up, lights flashing
+        if (t > 190) {
+          const cp = clamp01((t - 190) / 60);
+          policeCar(lerp(132, 104, 1 - (1 - cp) * (1 - cp)), 66, t, true);
+          if (t > 255 && t < 300) R('rgba(255,255,255,0.6)', 101, 76, 4, 1);   // tyre skid
+        }
+      },
+    },
+    { // 2. "Mr Claus, I'm placing you under arrest..."  "Gulp."
+      dur: 470,
+      lines: [
+        { at: 70, who: 'OFFICER', text: "Mr Claus, I'm placing you under arrest for drink flying. You do not have to say anything..." },
+        { at: 330, who: 'SANTA', text: 'Gulp.' },
+      ],
+      draw(t) {
+        sky(t);
+        R('#dfe8f5', 0, 74, 128, 22); R('#ffffff', 0, 74, 128, 2);
+        cottage(t);
+        C.drawImage(emptySleigh, 74, 64);
+        policeCar(104, 66, t, true);
+        // the officer walks over from the car; Santa stands facing him
+        const op = clamp01(t / 70);
+        C.drawImage(officer, Math.round(lerp(100, 74, op)), 59);
+        C.drawImage(op < 1 && (t >> 3) % 2 ? santaWalkB : santaWalkA, 58, 59);
+        if (t > 330) { const d = (t - 330) % 40; R('#9fd8f5', 68, 58 + d / 6, 1, 2); }   // nervous sweat
+      },
+    },
+    { // 3. Locked up, looking sorry for himself
+      dur: 320,
+      lines: [],
+      draw(t) {
+        R('#4a4f5c', 0, 0, 128, 96);
+        for (let y = 0; y < 76; y += 6) for (let x = (y / 6) % 2 ? -6 : 0; x < 128; x += 12) R('#3d414c', x, y, 11, 5);
+        R('#2c2f38', 0, 76, 128, 20);
+        // little barred window with the moon
+        R('#0b1026', 50, 10, 20, 14); R('#fff3c4', 60, 13, 5, 5);
+        for (let x = 53; x < 70; x += 4) R('#8a8f9a', x, 10, 1, 14);
+        // bench, and Santa slumped on it, no hat bobble bouncing now
+        R('#6b4a2a', 36, 66, 44, 4); R('#4f2f17', 38, 70, 3, 6); R('#4f2f17', 75, 70, 3, 6);
+        C.drawImage(santaWalkA, 52, 51);
+        R('#f2c09b', 56, 57, 1, 1);
+        if (t > 60) { const d = (t - 60) % 50; if (d < 30) R('#7cc4ef', 61, 56 + d / 5, 1, 2); }   // a tear
+        if (t > 140 && (t >> 5) % 2) text('SIGH', 66, 40, '#ffffff');
+        // cell bars across the front
+        for (let x = 6; x < 128; x += 14) { R('#9aa0ab', x, 0, 2, 96); R('#c7ccd6', x, 0, 1, 96); }
+        R('#9aa0ab', 0, 30, 128, 2); R('#9aa0ab', 0, 70, 128, 2);
+      },
+    },
+    { // 4. Christmas morning, and nothing under the tree
+      dur: 400, caption: 'CHRISTMAS MORNING',
+      lines: [{ at: 160, who: 'CHILD', text: 'Mummy, where are all my presents?' }],
+      draw(t) {
+        R('#7a3d3d', 0, 0, 128, 70); for (let x = 0; x < 128; x += 8) R('#6b3434', x, 0, 4, 70);
+        R('#8a5530', 0, 70, 128, 26); for (let x = 0; x < 128; x += 16) R('#6b3a1e', x, 70, 1, 26);
+        // window with a snowy morning outside
+        R('#4f2f17', 6, 14, 24, 22); R('#bfe0ff', 8, 16, 20, 18); R('#ffffff', 8, 30, 20, 4); R('#4f2f17', 17, 16, 2, 18);
+        // fireplace with empty stockings
+        R('#8c3b2c', 34, 40, 28, 30); R('#2a1a10', 40, 50, 16, 20); R('#ff9a3c', 44, 64, 8, 4); R('#6e2c20', 32, 38, 32, 3);
+        [38, 46, 54].forEach(x => { R('#d62839', x, 41, 4, 7); R('#ffffff', x, 41, 4, 2); });
+        // the tree, lit up, with nothing underneath
+        for (let k = 0; k < 30; k++) R(k % 10 < 2 ? '#1b5e20' : '#2e7d32', 86 - k * 0.6, 34 + k, k * 1.2 + 2, 1);
+        R('#4f2f17', 85, 64, 4, 6); R('#f7c843', 85, 31, 4, 4);
+        for (let i = 0; i < 10; i++) if ((t >> 4) % 2 === i % 2) R(['#ff4d4d', '#ffe14d', '#4dd2ff'][i % 3], 78 + (i * 7) % 18, 40 + (i * 11) % 22, 1, 1);
+        R('#d62839', 76, 70, 24, 2);   // empty tree skirt
+        // the stairs, and the child coming down them
+        for (let k = 0; k < 6; k++) R('#6b3a1e', 104 + k * 4, 70 - k * 6, 24 - k * 4, 6);
+        const cp = clamp01(t / 140);
+        C.drawImage(child, Math.round(lerp(120, 100, cp)), Math.round(lerp(30, 57, cp)));
+        if (t > 230 && (t >> 4) % 2) text('?', 104, 46, '#ffffff');
+      },
+    },
+    { // 5. The whole town in tears, then the verdict
+      dur: 760,
+      lines: [
+        { at: 170, who: '', text: "...and due to Santa's drunken escapades, none of the children got their toys. Christmas was ruined." },
+        { at: 520, who: '', text: 'He got 6 months and a 3 year flying ban.' },
+      ],
+      draw(t) {
+        R('#8090bd', 0, 0, 128, 30); R('#a3b0d6', 0, 30, 128, 30); R('#c6cfe8', 0, 60, 128, 36);   // grey Christmas morning, no stars
+        const HOUSES = [[0, 50, 18], [16, 56, 16], [30, 46, 20], [48, 54, 16], [62, 48, 18], [78, 52, 16], [92, 44, 20], [110, 53, 18]];
+        HOUSES.forEach(([hx, top, w], i) => {
+          R('#3d4f8a', hx, top, w, 80 - top); R('#2c3b6b', hx + w - 2, top, 2, 80 - top); R('#ffffff', hx - 1, top - 2, w + 2, 2);
+          R('#ffd27a', hx + 4, top + 6, 3, 3); R('#ffd27a', hx + w - 7, top + 12, 3, 3);
+        });
+        R('#dfe8f5', 0, 80, 128, 16); R('#ffffff', 0, 80, 128, 1);
+        // crying from every house
+        const SAY = [[['WAAAAA!'], 3, 24, 10], [['*SOB*'], 98, 30, 40], [['WHERE ARE ALL', 'THE PRESENTS?'], 37, 6, 80], [['WAAAH!'], 97, 6, 120], [['*SOB*'], 58, 32, 150]];
+        SAY.forEach(([lines, x, y, from], k) => { if (t > from && (t - from) % 220 < 160) bubble(x, y, lines, k); });
+      },
+    },
+    { // 6. The end
+      dur: 240, full: true,
+      lines: [],
+      draw(t) {
+        if (t > 20) textC('THE END', 72, 112, '#d62839', 3, '#ffffff');
+        if (t > 80) textC('MERRY CHRISTMAS', 72, 146, '#f7c843');
+      },
+    },
+  ];
+  // ending sound cues, one list per scene (same idea as the intro's)
+  const ENDING_SFX = [
+    t => { // sleigh bells as he lands, then a siren and a skid
+      if (t < 70 && t % 6 === 0) T({ type: 'sine', f0: 2400 + (t % 12 ? 400 : 0), dur: 0.05, vol: 0.03 });
+      if (t >= 190 && t % 24 === 0) T({ f0: (t / 24) % 2 ? 950 : 740, dur: 0.22, vol: 0.035 });
+      if (t === 252) N({ dur: 0.35, vol: 0.15, f: 3000, type: 'highpass' });
+    },
+    t => { // siren dies down, footsteps, then a big gulp
+      if (t < 60 && t % 24 === 0) T({ f0: (t / 24) % 2 ? 950 : 740, dur: 0.22, vol: 0.02 });
+      if (t < 70 && t % 16 === 0) N({ dur: 0.05, vol: 0.1, f: 2000 });
+      if (t === 334) { T({ type: 'sine', f0: 520, f1: 180, dur: 0.22, vol: 0.12 }); T({ type: 'sine', f0: 300, f1: 110, dur: 0.18, vol: 0.1, delay: 0.24 }); }
+    },
+    t => { // the cell door slamming, then a drip
+      if (t === 8) { N({ dur: 0.5, vol: 0.5, f: 600 }); [220, 330, 470].forEach(f => T({ f0: f, dur: 0.6, vol: 0.05 })); }
+      if (t > 60 && (t - 60) % 50 === 29) T({ type: 'sine', f0: 1800, f1: 1200, dur: 0.06, vol: 0.04 });
+    },
+    t => { // footsteps down the stairs
+      if (t < 140 && t % 23 === 0) T({ type: 'sine', f0: 110, f1: 60, dur: 0.1, vol: 0.2 });
+    },
+    t => { // wailing and sobbing as the bubbles appear, sad trombone at the end
+      [10, 120].forEach(from => { if (t > from && (t - from) % 220 === 1) [0, 0.12, 0.24].forEach((d, i) => T({ type: 'sawtooth', f0: 620 - i * 40, f1: 480 - i * 40, dur: 0.18, vol: 0.03, delay: d })); });
+      [40, 150].forEach(from => { if (t > from && (t - from) % 220 === 1) [0, 0.15].forEach(d => N({ dur: 0.08, vol: 0.1, f: 900, type: 'bandpass', delay: d })); });
+      if (t === 640) [[392, 0], [370, 0.4], [349, 0.8]].forEach(([f, d]) => T({ type: 'triangle', f0: f, dur: 0.35, vol: 0.1, delay: d }));
+      if (t === 640) T({ type: 'triangle', f0: 330, f1: 290, dur: 1.0, vol: 0.1, delay: 1.2 });
+    },
+    t => { // a last little chime
+      if (t === 22) [784, 659, 523].forEach((f, i) => T({ type: 'triangle', f0: f, dur: 0.4, vol: 0.06, delay: i * 0.25 }));
+    },
+  ];
+  ENDING_SCENES.forEach((S, i) => { S.sfx = ENDING_SFX[i]; });
+
   // Talking blips as the dialogue types out (deeper for Santa), and for captions
-  const VOICE = { SANTA: 200, BARMAN: 330, CROWD: 520 };
+  const VOICE = { SANTA: 200, BARMAN: 330, CROWD: 520, OFFICER: 260, CHILD: 650 };
   function typeBlips(S, t) {
     if (S.caption && t % 6 === 0) { const ch = S.caption[t / 3]; if (ch && ch !== ' ') T({ f0: 1100, dur: 0.02, vol: 0.02 }); }
     const line = S.lines.filter(l => t >= l.at).pop();
@@ -423,29 +630,37 @@
   }
 
   // ---------- The player ----------
-  function create(ctx, sound) {
+  function create(ctx, sound, which = 'intro') {
+    const SCENES_ = which === 'ending' ? ENDING_SCENES : SCENES;
     let scene = 0, t = 0;
     T = (sound && sound.tone) || (() => {});
     N = (sound && sound.noise) || (() => {});
     const intro = {
-      get done() { return scene >= SCENES.length; },
+      get done() { return scene >= SCENES_.length; },
       get scene() { return scene; },
       seek(s, f) { scene = s; t = f; },
       next() { scene++; t = 0; },
       update() {
-        if (scene >= SCENES.length) return;
-        SCENE_SFX[scene](t);
-        typeBlips(SCENES[scene], t);
-        if (++t >= SCENES[scene].dur) { scene++; t = 0; }
+        if (scene >= SCENES_.length) return;
+        SCENES_[scene].sfx(t);
+        typeBlips(SCENES_[scene], t);
+        if (++t >= SCENES_[scene].dur) { scene++; t = 0; }
       },
       draw(W, H, hint = 'TAP TO SKIP') {
-        if (scene >= SCENES.length) return;
+        if (scene >= SCENES_.length) return;
         C = ctx;
-        const S = SCENES[scene], oy = Math.floor((H - 256) / 2);
+        const S = SCENES_[scene], oy = Math.floor((H - 256) / 2);
         R('#05070f', 0, 0, W, H);
         ctx.save(); ctx.translate(0, oy);
         // text is centred on its finished width, so it types out left to right without sliding
         const startX = str => W / 2 - (str.length * 4 - 1) / 2;
+        if (S.full) {                       // a plain card (THE END), no picture frame or text box
+          S.draw(t);
+          const e = Math.min(t, S.dur - t);
+          if (e < 15) { ctx.fillStyle = `rgba(5,7,15,${1 - e / 15})`; ctx.fillRect(0, 0, W, 256); }
+          ctx.restore();
+          return;
+        }
         if (S.caption) text(S.caption.slice(0, Math.floor(t / 3)), startX(S.caption), 18, '#f7c843');
         // picture
         R('#b8862b', 7, 29, 130, 98); R('#05070f', 8, 30, 128, 96);
@@ -456,7 +671,7 @@
         R('#3a4a7a', 6, 136, 132, 62); R('#0b1026', 7, 137, 130, 60);
         const line = S.lines.filter(l => t >= l.at).pop();
         if (line) {
-          text(line.who, startX(line.who), 141, WHO_COLS[line.who] || '#fff');
+          if (line.who) text(line.who, startX(line.who), 141, WHO_COLS[line.who] || '#fff');   // narration has no name
           const shown = Math.floor((t - line.at) / 2);
           let used = 0;
           wrap(line.text, 31).forEach((l, i) => {
@@ -473,5 +688,5 @@
     };
     return intro;
   }
-  window.CrimboIntro = { create, sceneCount: SCENES.length };
+  window.CrimboIntro = { create, sceneCount: SCENES.length, endingSceneCount: ENDING_SCENES.length };
 })();

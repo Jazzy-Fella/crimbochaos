@@ -65,7 +65,7 @@ let SAFE_TOP = 0; // notch / status bar height in game pixels, kept clear of tex
 // Saved to the home screen, iPhones report the page as shorter than the screen by the
 // status bar's height (while still drawing it from the very top), leaving a band at the
 // bottom. So when running as a home screen app, size the page from the real screen.
-const BUILD = '2.2'; // shown on the title screen, so you can tell your phone has the latest copy
+const BUILD = '2.3'; // shown on the title screen, so you can tell your phone has the latest copy
 const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function isHomeScreenApp() {
   return navigator.standalone === true ||
@@ -327,8 +327,17 @@ const SPEECH_WRAP = 8;                     // max characters per line, keeps the
 let speech = null, nextSpeech = 0, lastLine = -1;
 let state, santa, platforms, gifts, score, best, frame, flakes, stars, particles, deathMsg, dist;
 
-// best = most presents saved in one run (a new save slot, since the old best counted chimneys)
-try { best = +localStorage.getItem('crimboBestPresents') || 0; } catch { best = 0; }
+// ---------- Story and Endless modes ----------
+// Story: saving 100 presents ends the run with the ending movie. Finishing it once unlocks
+// Endless mode (toggled on the title screen): no ending, play on for a high score. Each
+// mode keeps its own best score; "best" is always the best for the mode being played.
+let completed = false, endless = false, justUnlocked = 0;
+try { completed = localStorage.getItem('crimboCompleted') === '1'; endless = completed && localStorage.getItem('crimboEndless') !== '0'; } catch {}
+const bestKey = () => endless ? 'crimboBestEndless' : 'crimboBestPresents';
+function loadBest() { try { return +localStorage.getItem(bestKey()) || 0; } catch { return 0; } }
+function saveBest() { if (score > best) { best = score; try { localStorage.setItem(bestKey(), best); } catch {} } }
+function toggleEndless() { endless = !endless; try { localStorage.setItem('crimboEndless', endless ? '1' : '0'); } catch {} best = loadBest(); }
+best = loadBest();
 
 stars = Array.from({ length: 40 }, () => ({
   x: Math.random() * W, y: Math.random() * (GROUND - 40) - 40, t: Math.random() * 100
@@ -419,6 +428,16 @@ reset();
 // sound), then the intro movie, then the title screen. Tapping during the intro skips it.
 let intro = null;
 if (window.CrimboIntro) state = 'splash';
+// Save 100 presents and the run ends with the ending movie (Santa gets home... and gets nicked)
+const ENDING_AT = 100;
+let endingT = 0;
+function startEnding() {
+  if (state !== 'play' || !window.CrimboIntro || endless) return;   // Endless mode never ends
+  saveBest();
+  stopMusic(); speech = null; rocket = null; boost = 1; holding = false; endingT = 0;
+  intro = CrimboIntro.create(ctx, { tone, noise }, 'ending');
+  state = 'ending';
+}
 
 function burst(x, y, n, c, spd = 1, life = 20) {
   for (let i = 0; i < n; i++) particles.push({
@@ -605,6 +624,7 @@ function jump() {
   initAudio();
   if (state === 'splash') { playIntro(); return; }
   if (state === 'intro') { state = 'ready'; frame = 0; return; }   // skip the intro
+  if (state === 'ending') { if (endingT > 90) intro.next(); return; } // ending: tap for the next slide (not straight away)
   if (state === 'ready') { state = 'play'; startMusic(); return; }
   if (state === 'over') { if (frame > 30) reset(); return; }
   if (state === 'paused') { resumeGame(); return; }
@@ -673,7 +693,7 @@ function die(msg) {
   state = 'over'; frame = 0; deathMsg = msg; speech = null;
   shakeT = 20;
   hat = { x: santa.x + 8, y: santa.y - 1, vx: 1 + Math.random(), vy: -3.2, r: 0 };
-  if (score > best) { best = score; try { localStorage.setItem('crimboBestPresents', best); } catch {} }
+  saveBest();
   burst(santa.x + 12, santa.y + 6, 20, '#d62839', 1.5, 40);
   burst(santa.x + 12, santa.y + 6, 12, '#ffffff', 1.5, 40);
   if (msg === 'CRASH!') santa.vy = -2;
@@ -687,6 +707,19 @@ function update() {
   frame++;
   if (state === 'splash') return;
   if (state === 'intro') { intro.update(); if (intro.done) { state = 'ready'; frame = 0; } return; }
+  if (state === 'ending') {
+    endingT++; intro.update();
+    if (intro.done) {
+      if (!completed) {               // first time through: unlock Endless mode, switched on
+        completed = true; endless = true; justUnlocked = 360;
+        try { localStorage.setItem('crimboCompleted', '1'); localStorage.setItem('crimboEndless', '1'); } catch {}
+        best = loadBest();
+      }
+      reset(); frame = 0;
+    }
+    return;
+  }
+  if (justUnlocked > 0 && state === 'ready') justUnlocked--;
   if (state === 'paused') {          // everything frozen; count down after a tap to carry on
     if (resumeIn > 0 && --resumeIn === 0) {
       state = 'play';
@@ -837,7 +870,8 @@ function update() {
       g.got = true; score++;   // score = presents saved
       sfx.present();
       burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
-      if (g.super) startRocket();
+      if (score >= ENDING_AT) startEnding();
+      else if (g.super) startRocket();
     }
   });
 }
@@ -889,6 +923,7 @@ function rocketStep() {
   gifts.forEach(g => {
     if (!g.got && box.x < g.x + 7 && box.x + box.w > g.x && box.y < g.y + 7 && box.y + box.h > g.y) {
       g.got = true; score++; sfx.present(); burst(g.x + 3, g.y + 3, 10, '#f7c843', 1, 25);
+      if (score >= ENDING_AT) startEnding();
     }
   });
   // time's up and he's over a safe chimney: cut out (the rockets keep going until he is)
@@ -1262,9 +1297,9 @@ function drawLogoTop(oy) {   // oy = y0 - 8; the logo was designed with the snow
 let pageBg = '';
 function draw() {
   // the page around the game matches the darker intro screens, then the night sky
-  const bg = state === 'intro' || state === 'splash' ? '#05070f' : '#0b1026';
+  const bg = state === 'intro' || state === 'splash' || state === 'ending' ? '#05070f' : '#0b1026';
   if (bg !== pageBg) { document.documentElement.style.background = document.body.style.background = pageBg = bg; }
-  if (state === 'intro') { ctx.setTransform(1, 0, 0, 1, 0, 0); intro.draw(W, H, ''); return; }
+  if (state === 'intro' || state === 'ending') { ctx.setTransform(1, 0, 0, 1, 0, 0); intro.draw(W, H, ''); return; }
   if (state === 'splash') {
     ctx.setTransform(1, 0, 0, 1, 0, OY);
     rect('#05070f', 0, -OY, W, H);
@@ -1385,16 +1420,22 @@ function drawScene() {
     menuButton(bx, y, bw, 'MUSIC', !musicMuted, toggleMusic);
     menuButton(bx + bw + gap, y, bw, 'SOUND FX', !fxMuted, toggleFx);
     y += 14;
-    menuButton(bx, y, bw * 2 + gap, 'PLAY INTRO', null, playIntro);
+    if (completed) {                  // Endless unlocked: it shares the row with Play Intro
+      menuButton(bx, y, bw, 'PLAY INTRO', null, playIntro);
+      menuButton(bx + bw + gap, y, bw, 'ENDLESS', endless, toggleEndless);
+    } else menuButton(bx, y, bw * 2 + gap, 'PLAY INTRO', null, playIntro);
     y += 15;
-    // best score on one line: small label, big gold number
+    // best score on one line: small label, big gold number (for the mode being played)
     if (best) {
-      const nw = String(best).length * 8 - 2, total = 15 + 4 + nw, sx = W / 2 - total / 2;
-      text('BEST', sx + 7.5, y + 3, 1, '#bfe8ff');
-      text(String(best), sx + 19 + nw / 2, y, 2, '#ffe680');
+      const label = endless ? 'ENDLESS BEST' : 'BEST', lw = label.length * 4 - 1;
+      const nw = String(best).length * 8 - 2, total = lw + 4 + nw, sx = W / 2 - total / 2;
+      text(label, sx + lw / 2, y + 3, 1, '#bfe8ff');
+      text(String(best), sx + lw + 4 + nw / 2, y, 2, '#ffe680');
       y += 14;
     }
-    if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
+    if (justUnlocked > 0) {           // just finished the story for the first time
+      if ((frame >> 3) % 2) text('ENDLESS MODE UNLOCKED!', W / 2, y, 1, '#ffe14d');
+    } else if (Math.floor(frame / 20) % 2) text('TAP TO START', W / 2, y, 1, '#f7c843');
     // version number in the bottom corner (above the home bar), to check for updates
     const vy = H - OY - 9 - Math.ceil(SAFE_BOTTOM), label = 'V' + BUILD;
     text(label, W - 4 - (label.length * 4 - 1) / 2, vy, 1, '#9aa6c4');
@@ -1404,7 +1445,7 @@ function drawScene() {
     rect('#f7c843', 22, 70, 100, 1); rect('#f7c843', 22, 149, 100, 1);
     text('CRASH!', W / 2, 80, 2, '#d62839', '#fff'); // same message however you die (sounds still differ)
     text('PRESENTS SAVED ' + score, W / 2, 104, 1);
-    text('BEST ' + best, W / 2, 116, 1, '#ffe680');
+    text((endless ? 'ENDLESS BEST ' : 'BEST ') + best, W / 2, 116, 1, '#ffe680');
     if (frame > 30 && Math.floor(frame / 20) % 2) text('TAP TO RETRY', W / 2, 134, 1);
   }
 }

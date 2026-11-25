@@ -40,7 +40,9 @@ function noise({ dur, vol = 0.1, f = 1000, f1, type = 'lowpass', delay = 0 }) {
 const startSound = () => { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); };
 ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, startSound));
 
-const newIntro = () => CrimboIntro.create(ctx, { tone, noise });
+// add ?ending to the address to preview the ending instead of the intro
+const which = location.search.includes('ending') ? 'ending' : 'intro';
+const newIntro = () => CrimboIntro.create(ctx, { tone, noise }, which);
 let intro = newIntro(), wait = 0;
 addEventListener('pointerdown', () => { startSound(); intro.done ? (intro = newIntro()) : intro.next(); });
 const STEP = 1000 / 60; let last = performance.now(), acc = 0;
